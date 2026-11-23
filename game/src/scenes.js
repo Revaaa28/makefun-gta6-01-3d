@@ -10,10 +10,10 @@
 // dusk chase, neon mission, marina evening. window.__CS_READY flips true once
 // the staged frame has rendered, which is what the screenshot harness waits for.
 
-function stageCrowd(x, z, n) {
+function stageCrowd(x, z, n, spreadZ) {
   const rng = seededRandom(G.seed * 3 + n * 17 + Math.floor(x));
   for (let i = 0; i < n; i++) {
-    const ped = spawnPedestrian(G.scene3, rng, x + (rng() - 0.5) * 30, z + (rng() - 0.5) * 26);
+    const ped = spawnPedestrian(G.scene3, rng, x + (rng() - 0.5) * 30, z + (rng() - 0.5) * (spreadZ || 26));
     G.peds.push(ped);
   }
 }
@@ -51,6 +51,20 @@ function stageCyclist(x, z, angle) {
   return grp;
 }
 
+function hidePalmsNear(x, z, r) {
+  // Screenshot composition only: a palm whose trunk stands within r of the
+  // camera would fill the frame with a brown pole, so staged scenes hide the
+  // one or two crowns in the lens. Play mode never calls this — the palms are
+  // all still there in the game.
+  if (!G.palmCrowns) return;
+  for (const pc of G.palmCrowns) {
+    const palm = pc.g.parent;
+    if (!palm) continue;
+    const dx = palm.position.x - x, dz = palm.position.z - z;
+    if (dx * dx + dz * dz < r * r) palm.visible = false;
+  }
+}
+
 function showSceneRadio() {
   const st = CS.radioStations[G.radioIndex];
   const el = document.getElementById('radio');
@@ -83,11 +97,13 @@ function stageScene(name) {
     G.sceneCam = { dist: 10.5, height: 1.7 };
     commitCrime(380);
     G.wanted = 4;
-    // the formation is composed for the chase camera at the GT's tail: every
-    // unit sits inside the frame — two on the bumper (RAMMING), three running
-    // ahead-side to cut the GT off (FLANKING)
+    // the formation is composed for the chase camera at the GT's tail (the
+    // camera rides ~10.5 behind the GT, ~2.6 up): every unit sits at least 9
+    // units ahead of the camera and inside its cone — two flanking the GT in
+    // the eastbound lanes, two closing ahead, one on the shoulder. Nothing
+    // hugs the frame edge and nothing looms cropped over the lens.
     const formation = [
-      [154, 354.4, 34], [146, 368.8, 33], [172, 354.4, 32], [188, 365.6, 30], [166, 371.5, 31]
+      [150, 357.8, 34], [147, 371.0, 34], [158, 371.2, 32], [164, 365.6, 31], [172, 354.4, 30]
     ];
     for (const [ux, uz, us] of formation) {
       const u = spawnPoliceCar(G.scene3, ux, uz);
@@ -95,19 +111,19 @@ function stageScene(name) {
       u.car.speed = us; u.state = 'PURSUIT';
     }
     spawnHelicopter(G.scene3);
-    G.helicopter.mesh.position.set(180, 13, 362);
+    G.helicopter.mesh.position.set(186, 12, 361);
     G.helicopter.mesh.rotation.y = -1.9;
     G.helicopter.cone.visible = false; // no beam in bright daylight
     if (G.helicopter.pool) G.helicopter.pool.visible = false;
     parkSceneCars([
-      [228, 365.6, Math.PI / 2, 0xf2f0e6], [252, 354.4, Math.PI / 2, 0x3d7ad9],
-      [94, 354.4, Math.PI / 2, 0xf2b13d], [282, 365.6, Math.PI / 2, 0x3dd9a4]
+      [228, 365.6, Math.PI / 2, 0xf2f0e6], [252, 354.4, -Math.PI / 2, 0x3d7ad9],
+      [94, 354.4, -Math.PI / 2, 0xf2b13d], [282, 365.6, Math.PI / 2, 0x3dd9a4]
     ]);
     stageCyclist(163, 377.5, Math.PI / 2);
     stageCrowd(152, 394, 5);
-    stageCrowd(176, 400, 6);
-    stageCrowd(118, 406, 4);
-    stageCrowd(206, 352, 3);
+    stageCrowd(176, 397, 6, 18);
+    stageCrowd(118, 402, 4, 12);
+    stageCrowd(206, 383, 3, 12);
     const def = MISSION_DEFS[3];
     G.mission = { def: def, step: 0, collected: 0, timer: 71, holdFor: 0, startedAt: 0 };
     G.markers.push(makeMarker(def.objectives[0].at.x, def.objectives[0].at.z, 0xffd23d));
@@ -137,11 +153,11 @@ function stageScene(name) {
     u2.car.angle = Math.PI / 2; u2.car.mesh.rotation.y = Math.PI / 2; u2.car.speed = 33; u2.state = 'PURSUIT';
     const u3 = spawnPoliceCar(G.scene3, 20, 10.5);
     u3.car.angle = Math.PI / 2; u3.car.mesh.rotation.y = Math.PI / 2; u3.car.speed = 29; u3.state = 'EN ROUTE';
-    const u4 = spawnPoliceCar(G.scene3, 40, 12.6);
+    const u4 = spawnPoliceCar(G.scene3, 44, 10.8);
     u4.car.angle = Math.PI / 2; u4.car.mesh.rotation.y = Math.PI / 2; u4.car.speed = 30; u4.state = 'PURSUIT';
     G.roadblock = spawnRoadblock(G.scene3, 68, 5.6, Math.PI / 2);
     spawnHelicopter(G.scene3);
-    G.helicopter.mesh.position.set(63, 13.5, 6.5);
+    G.helicopter.mesh.position.set(70, 12, 6);
     G.helicopter.mesh.rotation.y = -2.4;
     G.helicopter.spot.target.position.set(-21, -13.5, -0.9);
     if (G.helicopter.pool) G.helicopter.pool.position.set(42, 0.24, 5.6);
@@ -170,13 +186,15 @@ function stageScene(name) {
     p.pos.set(-135, 0, 108);
     p.angle = 0.62; p.camYaw = 0.62; p.camPitch = 0.17;
     G.sceneCam = { dist: 7, height: 1.75 };
+    hidePalmsNear(-139, 102, 11); // keep the camera's foreground clear of trunks
+    hidePalmsNear(-135, 108, 6);
     parkSceneCars([
-      [-114.4, 84, 0, 0x8a4dd9], [-160, 125.6, -Math.PI / 2, 0x3dd9a4],
-      [-125.6, 142, Math.PI, 0xf2b13d], [-96, 114.4, Math.PI / 2, 0xd94f3d],
+      [-125.6, 84, 0, 0x8a4dd9], [-160, 125.6, Math.PI / 2, 0x3dd9a4],
+      [-114.4, 142, Math.PI, 0xf2b13d], [-96, 114.4, -Math.PI / 2, 0xd94f3d],
       [-150, 130.6, -Math.PI / 2, 0xf2f0e6]
     ]);
-    stageCrowd(-148, 96, 5);
-    stageCrowd(-118, 126, 3);
+    stageCrowd(-106, 104, 5);
+    stageCrowd(-106, 140, 3);
     G.money = 975; G.respect = 180;
     const dlg = dialogueFromLine(def.line);
     showDialogueStrip(dlg.speaker, dlg.text, 9999);
@@ -189,19 +207,20 @@ function stageScene(name) {
     // palm rows lining the shore road, the water and the boat masts on his right
     // and the low sun ahead over the bay — a different mood from the cover's
     // boulevard, and no bare-sand foreground.
-    const gt = spawnCar(G.scene3, 313, 354.4, Math.PI / 2, 0xd92632, 'gt', 'Serena GT');
+    const gt = spawnCar(G.scene3, 313, 350.4, Math.PI / 2, 0xd92632, 'gt', 'Serena GT');
     gt.parked = true;
     G.personalCar = gt;
     const def = MISSION_DEFS[4];
     G.mission = { def: def, step: 0, collected: 0, timer: null, holdFor: 0, startedAt: 0 };
     G.markers.push(makeMarker(def.objectives[0].at.x, def.objectives[0].at.z, 0xff5c8a));
-    p.pos.set(300, 0, 350);
+    p.pos.set(300, 0, 344.8); // on the shore road's south pavement, not in its lane
     p.angle = 1.07; p.camYaw = 1.07; p.camPitch = 0.15;
     G.sceneCam = { dist: 7.5, height: 1.8 };
+    hidePalmsNear(293, 341, 10); // keep the camera's foreground clear of trunks
     G.scene3.fog.color.setHex(0xdd7a52);
-    parkSceneCars([[272, 365.6, -Math.PI / 2, 0x3dd9a4], [352, 365.6, -Math.PI / 2, 0x3d7ad9], [326, 349.6, Math.PI / 2, 0xf2f0e6], [248, 354.4, Math.PI / 2, 0xf2b13d]]);
-    stageCrowd(318, 347, 4);
-    stageCrowd(344, 358, 3);
+    parkSceneCars([[272, 354.4, -Math.PI / 2, 0x3dd9a4], [352, 354.4, -Math.PI / 2, 0x3d7ad9], [326, 349.6, Math.PI / 2, 0xf2f0e6], [248, 365.6, Math.PI / 2, 0xf2b13d]]);
+    stageCrowd(318, 343, 4, 8);
+    stageCrowd(344, 383, 3, 12);
     G.money = 2140; G.respect = 470;
     updateBanner();
   }

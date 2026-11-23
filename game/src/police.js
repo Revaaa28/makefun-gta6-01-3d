@@ -344,8 +344,8 @@ function hurtPlayer(amount) {
     document.getElementById('down-screen').style.display = 'flex';
     document.getElementById('down-title').textContent = G.wanted >= 3 ? 'BUSTED' : 'WASTED';
     document.getElementById('down-line').textContent = G.wanted >= 3
-      ? 'The Costa Serena Patrol got their collar. The fine cost you $200 and your heat is gone.'
-      : 'The tide took that one. The hospital patched you up for $200.';
+      ? 'The Costa Serena Patrol got their collar. The fine cost you ₡200 and your heat is gone.'
+      : 'The tide took that one. The hospital patched you up for ₡200.';
     setTimeout(respawnPlayer, 2600);
   }
 }

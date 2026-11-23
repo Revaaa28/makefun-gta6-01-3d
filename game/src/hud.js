@@ -5,6 +5,19 @@
 
 let hudTick = 0;
 
+// The Costa Serena colón, ₡ — and its coin: a gold disc struck with an S,
+// three sun rays over it and the harbour waves under it. Drawn once as an
+// inline SVG string and stamped next to every balance the HUD shows.
+const COIN_SVG = '<svg class="coin" viewBox="0 0 24 24" aria-hidden="true">' +
+  '<circle cx="12" cy="12" r="10.6" fill="#f2b13d" stroke="#a86e14" stroke-width="1.5"/>' +
+  '<circle cx="12" cy="12" r="8.4" fill="none" stroke="#c98f22" stroke-width="0.9"/>' +
+  '<path d="M12 2.7v1.6M8.4 3.7l.8 1.4M15.6 3.7l-.8 1.4" stroke="#e05f2d" stroke-width="1.1" stroke-linecap="round"/>' +
+  '<path d="M15.2 7.1c-.6-1-1.7-1.6-3.1-1.6-1.7 0-3 1-3 2.3 0 3.2 6.1 1.8 6.1 4.4 0 1.3-1.4 2.2-3.1 2.2-1.4 0-2.6-.6-3.2-1.6" fill="none" stroke="#7a4a12" stroke-width="1.7" stroke-linecap="round"/>' +
+  '<path d="M5.4 17.7c1.1-.9 2.2-.9 3.3 0s2.2.9 3.3 0 2.2-.9 3.3 0 2.2.9 3.3 0" fill="none" stroke="#1d7a8c" stroke-width="1.3" stroke-linecap="round"/></svg>';
+let moneyShown = null;
+
+function moneyHtml(amount) { return COIN_SVG + '<span>₡' + amount.toLocaleString('en-US') + '</span>'; }
+
 function updateBanner() {
   const banner = document.getElementById('banner');
   const prompt = missionPromptVisible();
@@ -23,7 +36,7 @@ function updateBanner() {
     banner.style.display = 'block';
     document.getElementById('mission-name').textContent = 'NEXT JOB — ' + prompt.name;
     document.getElementById('mission-line').textContent = prompt.line;
-    document.getElementById('mission-obj').textContent = '▸ Press E to take the job  ·  pays $' + prompt.reward + '  ·  +' + prompt.respect + ' respect';
+    document.getElementById('mission-obj').textContent = '▸ Press E to take the job  ·  pays ₡' + prompt.reward + '  ·  +' + prompt.respect + ' respect';
   } else if (!nextMissionDef()) {
     banner.style.display = 'block';
     document.getElementById('mission-name').textContent = 'COSTA SERENA IS YOURS';
@@ -139,7 +152,10 @@ function dialogueFromLine(line) {
 
 function updateHud() {
   hudTick++;
-  document.getElementById('money').textContent = '$' + G.money.toLocaleString('en-US');
+  if (G.money !== moneyShown) {
+    moneyShown = G.money;
+    document.getElementById('money').innerHTML = moneyHtml(G.money);
+  }
   const lvl = respectLevel();
   document.getElementById('rep-level').textContent = lvl.name;
   const idx = CS.respectLevels.indexOf(lvl);

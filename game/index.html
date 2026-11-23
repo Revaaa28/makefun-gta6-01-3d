@@ -4,23 +4,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Costa Serena — a golden-hour crime sandbox</title>
+<link rel="icon" href="data:,">
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a0f14; font-family: "Segoe UI", Verdana, Geneva, sans-serif; }
+  /* the game's own type: Bungee for display (banners, numbers, titles), Rubik
+     for everything read at a glance. Both are vendored in ./fonts — the page
+     never reaches out to a font CDN. */
+  @font-face { font-family: "Bungee"; src: url("./fonts/Bungee-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+  @font-face { font-family: "Rubik"; src: url("./fonts/Rubik-Regular.woff2") format("woff2"); font-weight: 400 800; font-display: swap; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a0f14; font-family: "Rubik", "Segoe UI", Verdana, Geneva, sans-serif; }
+  .display { font-family: "Bungee", "Rubik", sans-serif; font-weight: 400; }
   #game-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; z-index: 5; }
   .panel { background: rgba(12, 8, 18, 0.62); border: 1px solid rgba(255, 190, 120, 0.35); border-radius: 8px; padding: 8px 11px; backdrop-filter: blur(2px); }
   #stats { position: absolute; top: 14px; left: 14px; min-width: 190px; }
-  #stats .money { font-size: 24px; font-weight: 700; color: #8dff9a; letter-spacing: 0.5px; text-shadow: 0 1px 3px #000; }
+  #stats .money { font-family: "Bungee", "Rubik", sans-serif; font-size: 21px; font-weight: 400; color: #8dff9a; letter-spacing: 0.5px; text-shadow: 0 1px 3px #000; display: flex; align-items: center; gap: 7px; }
+  #stats .money .coin { width: 23px; height: 23px; flex: none; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); }
   #stats .rep-row { margin-top: 4px; font-size: 12px; color: #ffd9a0; text-transform: uppercase; letter-spacing: 1px; }
   #repbar { height: 7px; background: rgba(255,255,255,0.18); border-radius: 4px; margin-top: 3px; overflow: hidden; }
   #repfill { height: 100%; width: 0%; background: linear-gradient(90deg, #ff9a3d, #ffd23d); }
   #clockbox { position: absolute; top: 14px; right: 14px; text-align: right; }
-  #clock { font-size: 22px; font-weight: 700; text-shadow: 0 1px 3px #000; }
+  #clock { font-family: "Bungee", "Rubik", sans-serif; font-size: 20px; font-weight: 400; text-shadow: 0 1px 3px #000; }
   #stars { font-size: 24px; letter-spacing: 3px; color: rgba(255,255,255,0.22); text-shadow: 0 1px 3px #000; }
   #stars .lit { color: #ffd23d; text-shadow: 0 0 8px #ff9a3d, 0 1px 3px #000; }
   #district { font-size: 12px; color: #ffd9a0; text-transform: uppercase; letter-spacing: 2px; margin-top: 2px; }
   #banner { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); max-width: 620px; text-align: center; display: none; }
-  #banner .mission-name { font-size: 19px; font-weight: 700; color: #ffd23d; letter-spacing: 0.5px; text-shadow: 0 1px 4px #000; }
+  #banner .mission-name { font-family: "Bungee", "Rubik", sans-serif; font-size: 17px; font-weight: 400; color: #ffd23d; letter-spacing: 0.5px; text-shadow: 0 1px 4px #000; }
   #banner .mission-line { font-size: 14px; color: #fff; margin-top: 2px; text-shadow: 0 1px 3px #000; }
   #banner .mission-obj { font-size: 13px; color: #aee7ff; margin-top: 3px; }
   #response { position: absolute; top: 118px; right: 14px; width: 218px; display: none; }
@@ -36,12 +44,12 @@
   .crew-card.cooling { opacity: 0.72; }
   .crew-port { width: 30px; height: 30px; border-radius: 50%; background: var(--cc); color: #10131a; font-weight: 800; font-size: 16px; display: flex; align-items: center; justify-content: center; flex: none; }
   .crew-info { flex: 1; min-width: 0; }
-  .crew-ability { font-size: 12.5px; font-weight: 700; letter-spacing: 0.8px; color: #fff; }
+  .crew-ability { font-family: "Bungee", "Rubik", sans-serif; font-size: 11.5px; font-weight: 400; letter-spacing: 0.6px; color: #fff; }
   .crew-name { font-size: 10.5px; color: #ffd9a0; letter-spacing: 0.4px; }
   .crew-key { flex: none; font-size: 11px; font-weight: 800; color: #10131a; background: #f2ede2; border-radius: 4px; padding: 2px 6px; box-shadow: 0 2px 0 rgba(0,0,0,0.45); }
   .crew-cd { position: absolute; left: 0; bottom: 0; width: 100%; height: 0%; background: rgba(4, 4, 10, 0.58); pointer-events: none; }
   .crew-cdtext { position: absolute; right: 6px; bottom: 3px; font-size: 10px; font-weight: 700; color: #aee7ff; text-shadow: 0 1px 2px #000; }
-  #weaponname { font-size: 13px; font-weight: 700; letter-spacing: 1px; text-shadow: 0 1px 3px #000; margin-bottom: 3px; }
+  #weaponname { font-family: "Bungee", "Rubik", sans-serif; font-size: 12px; font-weight: 400; letter-spacing: 1px; text-shadow: 0 1px 3px #000; margin-bottom: 3px; }
   #weaponslots { display: flex; gap: 5px; justify-content: flex-end; margin-bottom: 5px; }
   .wslot { position: relative; width: 47px; height: 44px; background: rgba(12, 8, 18, 0.62); border: 1px solid rgba(255,255,255,0.22); border-radius: 6px; color: #fff; }
   .wslot.active { border-color: #ffd23d; box-shadow: 0 0 9px rgba(255, 210, 61, 0.5); }
@@ -64,27 +72,27 @@
   .bar > div { height: 100%; }
   #healthfill { background: linear-gradient(90deg, #ff5f6d, #ff9a5f); width: 100%; }
   #armourfill { background: linear-gradient(90deg, #6db3ff, #aee7ff); width: 0%; }
-  #speed { font-size: 26px; font-weight: 700; text-shadow: 0 1px 3px #000; display: none; }
-  #speed small { font-size: 12px; color: #ffd9a0; }
+  #speed { font-family: "Bungee", "Rubik", sans-serif; font-size: 24px; font-weight: 400; text-shadow: 0 1px 3px #000; display: none; }
+  #speed small { font-family: "Rubik", sans-serif; font-size: 12px; font-weight: 700; color: #ffd9a0; }
   #carname { font-size: 12.5px; color: #ffe9c9; display: none; }
   #hints { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 12.5px; color: rgba(255,255,255,0.85); text-shadow: 0 1px 3px #000; white-space: nowrap; }
   #radio { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); font-size: 13px; color: #aee7ff; text-shadow: 0 1px 3px #000; display: none; }
-  #toast { position: absolute; top: 108px; left: 50%; transform: translateX(-50%); font-size: 16px; font-weight: 700; color: #8dff9a; text-shadow: 0 1px 4px #000; display: none; text-align: center; }
+  #toast { position: absolute; top: 108px; left: 50%; transform: translateX(-50%); font-family: "Bungee", "Rubik", sans-serif; font-size: 14.5px; font-weight: 400; color: #8dff9a; text-shadow: 0 1px 4px #000; display: none; text-align: center; }
   #crosshair { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: rgba(255,255,255,0.85); box-shadow: 0 0 5px #000; }
   .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; z-index: 10; text-align: center; color: #fff; }
   #start-screen { background: linear-gradient(180deg, rgba(60,16,32,0.55), rgba(10,6,16,0.88)); pointer-events: auto; }
-  #start-screen h1 { font-size: 64px; margin: 0; letter-spacing: 3px; font-weight: 800; color: #ffd9a0; text-shadow: 0 0 26px rgba(255,122,61,0.8), 0 3px 0 #7a2d43; }
+  #start-screen h1 { font-family: "Bungee", "Rubik", sans-serif; font-size: 58px; margin: 0; letter-spacing: 3px; font-weight: 400; color: #ffd9a0; text-shadow: 0 0 26px rgba(255,122,61,0.8), 0 3px 0 #7a2d43; }
   #start-screen h2 { font-size: 17px; font-weight: 400; color: #aee7ff; margin: 6px 0 22px; letter-spacing: 2px; text-transform: uppercase; }
-  #start-screen .btn { pointer-events: auto; cursor: pointer; background: linear-gradient(180deg, #ff9a3d, #e05f2d); border: 1px solid #ffd9a0; color: #fff; font-size: 19px; font-weight: 700; padding: 12px 44px; border-radius: 8px; margin: 5px; letter-spacing: 1px; box-shadow: 0 6px 22px rgba(0,0,0,0.5); }
+  #start-screen .btn { pointer-events: auto; cursor: pointer; background: linear-gradient(180deg, #ff9a3d, #e05f2d); border: 1px solid #ffd9a0; color: #fff; font-family: "Bungee", "Rubik", sans-serif; font-size: 17px; font-weight: 400; padding: 12px 44px; border-radius: 8px; margin: 5px; letter-spacing: 1px; box-shadow: 0 6px 22px rgba(0,0,0,0.5); }
   #start-screen .btn:hover { filter: brightness(1.12); }
   #start-screen .controls { margin-top: 24px; font-size: 13.5px; line-height: 1.75; color: rgba(255,255,255,0.88); text-shadow: 0 1px 3px #000; }
   #start-screen .controls b { color: #ffd23d; }
   #pause-screen, #down-screen { background: rgba(8, 5, 14, 0.72); display: none; pointer-events: auto; }
-  #pause-screen h1, #down-screen h1 { font-size: 40px; letter-spacing: 3px; color: #ffd9a0; margin: 0 0 10px; }
+  #pause-screen h1, #down-screen h1 { font-family: "Bungee", "Rubik", sans-serif; font-size: 36px; font-weight: 400; letter-spacing: 3px; color: #ffd9a0; margin: 0 0 10px; }
   #garage { position: fixed; right: 18px; top: 50%; transform: translateY(-50%); width: 300px; z-index: 9; display: none; color: #fff; pointer-events: auto; }
-  #garage h3 { margin: 2px 0 8px; color: #ffd23d; letter-spacing: 1px; font-size: 17px; }
+  #garage h3 { margin: 2px 0 8px; color: #ffd23d; letter-spacing: 1px; font-family: "Bungee", "Rubik", sans-serif; font-weight: 400; font-size: 15px; }
   #garage .shop-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-top: 1px solid rgba(255,255,255,0.12); font-size: 13.5px; }
-  #garage button { cursor: pointer; background: #2d4a67; color: #fff; border: 1px solid #6db3ff; border-radius: 5px; padding: 5px 12px; font-weight: 700; }
+  #garage button { cursor: pointer; background: #2d4a67; color: #fff; border: 1px solid #6db3ff; border-radius: 5px; padding: 5px 12px; font-family: "Bungee", "Rubik", sans-serif; font-weight: 400; font-size: 12.5px; }
   #garage button:disabled { opacity: 0.4; cursor: default; }
   #garage .close-note { font-size: 12px; color: #aee7ff; margin-top: 9px; }
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -94,7 +102,7 @@
 <canvas id="game-canvas" aria-label="Costa Serena: a 3D open-world crime game set in a golden-hour coastal city"></canvas>
 <div id="hud">
   <div id="stats" class="panel">
-    <div class="money" id="money">$350</div>
+    <div class="money" id="money">₡350</div>
     <div class="rep-row"><span id="rep-level">NOBODY</span> · RESPECT</div>
     <div id="repbar"><div id="repfill"></div></div>
     <div id="standing">CENTRO · NOBODY 0%</div>
@@ -153,7 +161,7 @@
 </div>
 <div id="down-screen" class="overlay">
   <h1 id="down-title">WASTED</h1>
-  <div id="down-line">The tide took that one. The hospital patched you up for $200.</div>
+  <div id="down-line">The tide took that one. The hospital patched you up for ₡200.</div>
 </div>
 <p id="status" role="status" aria-live="polite"></p>
 <script src="./vendor/three.min.js"></script>

@@ -2,8 +2,20 @@
 // grid, drive it, brake for whatever is ahead and choose a new heading at each
 // intersection. Traffic cars are stealable: the player entering one hands it over
 // (see player.js), and the traffic system simply stops updating it.
+//
+// RIGHT-HAND TRAFFIC, on the same lanes the road markings are painted for
+// (city.js draws the arrows at these very offsets): on an east-west avenue the
+// eastbound lane is the southern half (fixed + 5.6), westbound the northern
+// (fixed - 5.6); on a north-south avenue southbound is the western half
+// (fixed - 5.6), northbound the eastern (fixed + 5.6).
 
 function trafficLaneOffset() { return 5.6; }
+
+// the signed offset of the right-hand lane for a car travelling dir (+1/-1)
+// along axis ('x' = east-west road, 'z' = north-south road)
+function laneOffsetFor(axis, dir) {
+  return trafficLaneOffset() * dir * (axis === 'x' ? 1 : -1);
+}
 
 // A traffic car travels along one avenue; dir is +1 or -1 along the axis, axis is
 // 'x' (east-west road, constant z) or 'z' (north-south road, constant x).
@@ -12,7 +24,7 @@ function spawnTrafficCar(scene, rng) {
   const avenues = axis === 'x' ? CS.avenuesZ : CS.avenuesX;
   const fixed = avenues[Math.floor(rng() * avenues.length)];
   const dir = rng() < 0.5 ? 1 : -1;
-  const off = trafficLaneOffset() * dir * (axis === 'x' ? -1 : 1);
+  const off = laneOffsetFor(axis, dir);
   const along = -430 + rng() * 800;
   const x = axis === 'x' ? along : fixed + off;
   const z = axis === 'x' ? fixed + off : (along > 370 ? 300 : along);
@@ -27,7 +39,7 @@ function spawnTrafficCar(scene, rng) {
 
 function buildTraffic(scene) {
   const rng = seededRandom(G.seed * 7 + 21);
-  for (let i = 0; i < 26; i++) G.traffic.push(spawnTrafficCar(scene, rng));
+  for (let i = 0; i < 34; i++) G.traffic.push(spawnTrafficCar(scene, rng));
 }
 
 function trafficCarAhead(car, dist) {
@@ -70,18 +82,17 @@ function updateTraffic(dt) {
         t.turnCooldown = 2.5;
         if (Math.random() < 0.45) {
           const newDir = Math.random() < 0.5 ? 1 : -1;
-          const fixedNow = t.axis === 'x' ? car.pos.z : car.pos.x;
-          const offNow = trafficLaneOffset();
           if (t.axis === 'x') {
-            car.pos.x = ca + offNow * newDir;
+            // turning onto the north-south avenue: land in ITS right-hand lane
+            car.pos.x = ca + laneOffsetFor('z', newDir);
             car.angle = newDir > 0 ? 0 : Math.PI;
             t.axis = 'z'; t.dir = newDir; t.fixed = ca;
           } else {
-            car.pos.z = ca - offNow * newDir;
+            // turning onto the east-west avenue: land in ITS right-hand lane
+            car.pos.z = ca + laneOffsetFor('x', newDir);
             car.angle = newDir > 0 ? Math.PI / 2 : -Math.PI / 2;
             t.axis = 'x'; t.dir = newDir; t.fixed = ca;
           }
-          void fixedNow;
         }
         break;
       }

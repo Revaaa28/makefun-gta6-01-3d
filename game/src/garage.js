@@ -40,7 +40,7 @@ function renderGaragePanel() {
     const ok = car || good.id === 'gt' ? (good.can(target || car || {}) && G.money >= price) : false;
     row.innerHTML = '<span><b>' + good.name + '</b><br><small>' + good.desc + '</small></span>';
     const btn = document.createElement('button');
-    btn.textContent = '$' + price;
+    btn.textContent = '₡' + price;
     btn.disabled = !ok;
     btn.addEventListener('click', function () {
       if (G.money < price) return;

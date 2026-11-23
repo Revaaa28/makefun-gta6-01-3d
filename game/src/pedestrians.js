@@ -60,42 +60,61 @@ function makePedestrianMesh(rng) {
   return ped;
 }
 
-function spawnPedestrian(scene, rng, x, z) {
+function spawnPedestrian(scene, rng, x, z, beach) {
   const mesh = makePedestrianMesh(rng);
   mesh.position.set(x, 0, z);
   scene.add(mesh);
   const ped = {
     mesh: mesh, pos: mesh.position, angle: rng() * Math.PI * 2,
-    speed: 0, walkSpeed: 1.1 + rng() * 0.9, health: 40, dead: false,
+    speed: 0, walkSpeed: 1.1 + rng() * 0.9, health: 40, dead: false, beach: !!beach,
     state: 'walk', panicUntil: 0, phase: rng() * 6.28, targetX: x, targetZ: z, retargetIn: 2 + rng() * 5
   };
   pickPedTarget(ped, rng);
   return ped;
 }
 
+// The sidewalk band of every avenue: the road bed is roadWidth+7 wide, the
+// carriageway roadWidth — so the pavement a person can actually walk on runs
+// ~12.8..15.2 out from the avenue centre. People spawn and stroll THERE (and
+// on the beach promenade), never mid-block inside a building or mid-carriageway.
+const SIDEWALK_OFF = 14.1;
+
 function pickPedTarget(ped, rng) {
-  // wander the sidewalk grid: pick a point on a nearby avenue edge
-  const useX = (rng || Math.random)() < 0.5;
   const r = rng || Math.random;
+  if (ped.beach) {
+    // stroll the promenade and the sand: along the shore, between the shore
+    // road's south pavement and the waterline
+    ped.targetX = clampValue(ped.pos.x + (r() - 0.5) * 300, -440, 440);
+    ped.targetZ = 378 + r() * 26;
+    return;
+  }
+  // wander the sidewalk grid: pick a point on a nearby avenue's pavement
+  const useX = r() < 0.5;
   if (useX) {
     const ax = CS.avenuesX[Math.floor(r() * CS.avenuesX.length)];
-    ped.targetX = ax + (r() < 0.5 ? -16 : 16);
+    ped.targetX = ax + (r() < 0.5 ? -SIDEWALK_OFF : SIDEWALK_OFF);
     ped.targetZ = clampValue(ped.pos.z + (r() - 0.5) * 260, -440, 370);
   } else {
     const az = CS.avenuesZ[Math.floor(r() * CS.avenuesZ.length)];
-    ped.targetZ = az + (r() < 0.5 ? -16 : 16);
+    ped.targetZ = az + (r() < 0.5 ? -SIDEWALK_OFF : SIDEWALK_OFF);
     ped.targetX = clampValue(ped.pos.x + (r() - 0.5) * 260, -440, 440);
   }
 }
 
 function buildPedestrians(scene) {
   const rng = seededRandom(G.seed * 13 + 3);
-  for (let i = 0; i < 46; i++) {
-    const ax = CS.avenuesX[Math.floor(rng() * CS.avenuesX.length)];
-    const az = CS.avenuesZ[Math.floor(rng() * CS.avenuesZ.length)];
-    const x = clampValue(ax + (rng() - 0.5) * 200, -440, 440);
-    const z = clampValue(az + (rng() - 0.5) * 200, -440, 370);
-    G.peds.push(spawnPedestrian(scene, rng, x, z));
+  for (let i = 0; i < 52; i++) {
+    // born on a pavement: a random avenue, a random side, a random stretch
+    if (rng() < 0.5) {
+      const ax = CS.avenuesX[Math.floor(rng() * CS.avenuesX.length)];
+      G.peds.push(spawnPedestrian(scene, rng, ax + (rng() < 0.5 ? -SIDEWALK_OFF : SIDEWALK_OFF), -440 + rng() * 810));
+    } else {
+      const az = CS.avenuesZ[Math.floor(rng() * CS.avenuesZ.length)];
+      G.peds.push(spawnPedestrian(scene, rng, -440 + rng() * 880, az + (rng() < 0.5 ? -SIDEWALK_OFF : SIDEWALK_OFF)));
+    }
+  }
+  for (let i = 0; i < 16; i++) { // the beach crowd, on the promenade and sand
+    G.peds.push(spawnPedestrian(scene, rng, -430 + rng() * 860, 378 + rng() * 26, true));
   }
 }
 

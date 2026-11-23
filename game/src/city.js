@@ -59,7 +59,7 @@ function makeFacadeTexture(rng, baseHue, neon) {
     }
     g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(0, gy + 28, 256, 3);
     g.fillStyle = '#fff3cf'; g.fillRect(14, gy + 2, 228, 13);
-    g.fillStyle = '#26303c'; g.font = 'bold 12px Verdana'; g.textAlign = 'center';
+    g.fillStyle = '#26303c'; g.font = '800 12px Rubik, Verdana, sans-serif'; g.textAlign = 'center';
     g.fillText(name, 128, gy + 12);
     for (let d = 0; d < 3; d++) { // glass shop windows, warm inside
       g.fillStyle = rng() < 0.8 ? '#ffca7a' : '#ffe9b8';
@@ -76,7 +76,7 @@ function makeFacadeTexture(rng, baseHue, neon) {
   if (neon) {
     g.fillStyle = neon; g.fillRect(0, 190, 256, 46);
     g.fillStyle = 'rgba(255,255,255,0.95)';
-    g.font = 'bold 30px Verdana'; g.textAlign = 'center';
+    g.font = '28px Bungee, Rubik, sans-serif'; g.textAlign = 'center';
     g.fillText(neon === '#ff2e88' ? 'CLUB VELA' : (neon === '#22d3ee' ? 'HOTEL LUNA' : 'CASINO BRISA'), 128, 224);
     g.fillStyle = 'rgba(255,255,255,0.55)'; g.fillRect(0, 186, 256, 3); g.fillRect(0, 236, 256, 3);
   }
@@ -151,37 +151,133 @@ function makeStripeTexture() {
   return tex;
 }
 
-const PALM_TRUNK_GEO = new THREE.CylinderGeometry(0.2, 0.36, 1, 6);
-const PALM_FROND_GEO = new THREE.ConeGeometry(0.5, 6.4, 4);
+// --- small geometry toolkit -----------------------------------------------------
+// mergeColouredParts bakes transformed, vertex-coloured copies of simple
+// geometries into ONE BufferGeometry — the palms (and only the palms for now)
+// are built this way: a whole tree is two draw calls, trunk and crown, instead
+// of the ten loose cones and cylinders that used to read as separate pieces.
+function partMtx(x, y, z, rx, ry, rz, sx, sy, sz) {
+  const m = new THREE.Matrix4();
+  m.compose(new THREE.Vector3(x, y, z),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)),
+    new THREE.Vector3(sx || 1, sy || 1, sz || 1));
+  return m;
+}
 
-function makePalmTree(rng, trunkMat, frondMat) {
-  // a bent trunk (two stacked segments leaning the same way) and seven drooping
-  // fronds read as a palm from any distance; four stiff cones read as a star.
-  // Shared geometries keep the whole city's palms at a handful of draw calls
-  // per tree, and the city now carries several hundred of them.
+function mergeColouredParts(parts) {
+  let vCount = 0, iCount = 0;
+  for (const p of parts) {
+    vCount += p.geo.attributes.position.count;
+    iCount += p.geo.index ? p.geo.index.count : p.geo.attributes.position.count;
+  }
+  const pos = new Float32Array(vCount * 3), nor = new Float32Array(vCount * 3), col = new Float32Array(vCount * 3);
+  const idx = new (vCount > 65535 ? Uint32Array : Uint16Array)(iCount);
+  const nm = new THREE.Matrix3(), v = new THREE.Vector3(), n = new THREE.Vector3(), c = new THREE.Color();
+  let vo = 0, io = 0;
+  for (const p of parts) {
+    const g = p.geo;
+    nm.getNormalMatrix(p.mtx);
+    c.set(p.color);
+    const pa = g.attributes.position, na = g.attributes.normal;
+    for (let i = 0; i < pa.count; i++) {
+      v.fromBufferAttribute(pa, i).applyMatrix4(p.mtx);
+      pos[(vo + i) * 3] = v.x; pos[(vo + i) * 3 + 1] = v.y; pos[(vo + i) * 3 + 2] = v.z;
+      n.fromBufferAttribute(na, i).applyMatrix3(nm).normalize();
+      nor[(vo + i) * 3] = n.x; nor[(vo + i) * 3 + 1] = n.y; nor[(vo + i) * 3 + 2] = n.z;
+      col[(vo + i) * 3] = c.r; col[(vo + i) * 3 + 1] = c.g; col[(vo + i) * 3 + 2] = c.b;
+    }
+    if (g.index) { for (let i = 0; i < g.index.count; i++) idx[io + i] = g.index.getX(i) + vo; io += g.index.count; }
+    else { for (let i = 0; i < pa.count; i++) idx[io + i] = vo + i; io += pa.count; }
+    vo += pa.count;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  return out;
+}
+
+// Is this point on a carriageway? The union of every avenue's asphalt strip —
+// the placement guard that keeps trees, lamps and furniture off the road for
+// good, including the trap at junctions, where a point can be on one avenue's
+// pavement and squarely inside the crossing avenue's lanes.
+function onCarriageway(x, z, margin) {
+  const half = CS.world.roadWidth / 2 + (margin || 0);
+  for (const az of CS.avenuesZ) if (Math.abs(z - az) < half && Math.abs(x) < 480) return true;
+  for (const ax of CS.avenuesX) if (Math.abs(x - ax) < half && z > -470 && z < 430) return true;
+  return false;
+}
+
+const PALM_MAT = new THREE.MeshLambertMaterial({ vertexColors: true });
+const PALM_FROND_BASE = new THREE.CylinderGeometry(0.015, 0.13, 1, 4);
+PALM_FROND_BASE.translate(0, 0.5, 0); // base at the origin, tip at y=1
+
+function makePalmTree(rng) {
+  // A palm that reads as ONE living plant: the trunk is a single cylinder bent
+  // smoothly sideways (vertices displaced along a curve, so it can never come
+  // apart), and the crown is a separate merged fan of tapered fronds whose
+  // bases all sit IN the trunk top — upper spears, a mid fan, a drooping lower
+  // ring and a few dry hangers, with coconuts tucked under it. The crown is
+  // its own group so main.js can sway it in the sea breeze.
   const palm = new THREE.Group();
   const h = 7.5 + rng() * 4;
-  const lean = (rng() - 0.5) * 0.22;
-  const trunkLow = new THREE.Mesh(PALM_TRUNK_GEO, trunkMat);
-  trunkLow.scale.y = h * 0.55; trunkLow.position.y = h * 0.275; trunkLow.rotation.z = lean * 0.5;
-  palm.add(trunkLow);
-  const trunkTop = new THREE.Mesh(PALM_TRUNK_GEO, trunkMat);
-  trunkTop.scale.set(0.8, h * 0.5, 0.8);
-  trunkTop.position.set(Math.sin(-lean * 0.5) * h * 0.5 * -1, h * 0.78, 0);
-  trunkTop.rotation.z = lean;
-  palm.add(trunkTop);
-  const topX = -Math.sin(lean) * h * 0.95;
-  for (let i = 0; i < 7; i++) {
-    const frond = new THREE.Mesh(PALM_FROND_GEO, frondMat);
-    const a = (i / 7) * Math.PI * 2 + rng() * 0.5;
-    frond.scale.set(1, 1, 0.32);
-    frond.position.set(topX + Math.cos(a) * 2.4, h + 0.5, Math.sin(a) * 2.4);
-    frond.rotation.set((Math.PI / 2.05) * Math.sin(a), 0, -(Math.PI / 2.05) * Math.cos(a));
-    palm.add(frond);
+  const leanAmt = 0.5 + rng() * 1.1;
+  const trunkGeo = new THREE.CylinderGeometry(0.19, 0.37, h, 6, 6);
+  trunkGeo.translate(0, h / 2, 0);
+  const tp = trunkGeo.attributes.position;
+  const trunkCol = [];
+  for (let i = 0; i < tp.count; i++) {
+    const y = tp.getY(i), t = y / h;
+    tp.setX(i, tp.getX(i) + leanAmt * t * t);
+    const shade = 0.82 + 0.18 * t; // darker at the base, sunlit at the top
+    trunkCol.push(0.54 * shade, 0.42 * shade, 0.29 * shade);
   }
-  const nuts = new THREE.Mesh(new THREE.SphereGeometry(0.42, 6, 5), trunkMat);
-  nuts.position.set(topX, h - 0.15, 0); nuts.scale.y = 0.75;
-  palm.add(nuts);
+  trunkGeo.setAttribute('color', new THREE.Float32BufferAttribute(trunkCol, 3));
+  trunkGeo.computeVertexNormals();
+  const trunk = new THREE.Mesh(trunkGeo, PALM_MAT);
+  palm.add(trunk);
+
+  const crown = new THREE.Group();
+  crown.position.set(leanAmt, h, 0);
+  const greens = [0x3e8a4f, 0x4da35e, 0x35794a];
+  const parts = [];
+  const rings = [
+    { n: 3, tilt: 0.38, len: 3.4 },  // upright spears
+    { n: 6, tilt: 0.85, len: 5.4 },  // the main fan
+    { n: 5, tilt: 1.3, len: 4.7 },   // the drooping lower ring
+    { n: 3, tilt: 2.15, len: 3.1 }   // dry hangers underneath
+  ];
+  const qY = new THREE.Quaternion(), qZ = new THREE.Quaternion();
+  const YAXIS = new THREE.Vector3(0, 1, 0), ZAXIS = new THREE.Vector3(0, 0, 1);
+  for (let r = 0; r < rings.length; r++) {
+    const ring = rings[r];
+    for (let i = 0; i < ring.n; i++) {
+      const a = (i / ring.n) * Math.PI * 2 + r * 0.7 + rng() * 0.4;
+      const len = ring.len * (0.88 + rng() * 0.24);
+      const dry = r === 3;
+      // tilt the frond away from vertical around Z, then swing it to its
+      // azimuth around Y — its base stays at the crown origin either way
+      qY.setFromAxisAngle(YAXIS, -a);
+      qZ.setFromAxisAngle(ZAXIS, -ring.tilt);
+      const q = qY.clone().multiply(qZ);
+      const m = new THREE.Matrix4().compose(
+        new THREE.Vector3(0, -0.05, 0), q, new THREE.Vector3(1, len, 0.22));
+      parts.push({ geo: PALM_FROND_BASE, mtx: m, color: dry ? 0x9a8a4a : greens[Math.floor(rng() * greens.length)] });
+    }
+  }
+  for (let i = 0; i < 3; i++) { // coconuts under the crown
+    const a = rng() * Math.PI * 2;
+    parts.push({
+      geo: new THREE.SphereGeometry(0.21, 6, 5),
+      mtx: partMtx(Math.cos(a) * 0.24, -0.22, Math.sin(a) * 0.24, 0, 0, 0),
+      color: 0x6e5636
+    });
+  }
+  const crownMesh = new THREE.Mesh(mergeColouredParts(parts), PALM_MAT);
+  crown.add(crownMesh);
+  palm.add(crown);
+  palm.userData.crown = crown;
   return palm;
 }
 
@@ -232,7 +328,7 @@ function buildCostaSerenaCity(scene) {
 
   // --- ground: city slab, sand, animated water ---------------------------------
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(1100, 1000),
-    new THREE.MeshLambertMaterial({ color: 0x9c8a76 }));
+    new THREE.MeshLambertMaterial({ color: 0x87755e }));
   ground.rotation.x = -Math.PI / 2; ground.position.set(0, -0.05, -30);
   ground.receiveShadow = true;
   scene.add(ground);
@@ -248,61 +344,123 @@ function buildCostaSerenaCity(scene) {
   G.waterMesh = water;
 
   // --- roads --------------------------------------------------------------------
-  const roadMat = new THREE.MeshLambertMaterial({ color: 0x565b66 });
-  const walkMat = new THREE.MeshLambertMaterial({ color: 0xcdbb9c });
-  const lineMat = new THREE.MeshBasicMaterial({ color: 0xffdf7e });
+  // deep grey asphalt — the old blue-grey washed out to pavement under the
+  // daylight hemisphere; this tone keeps the carriageway reading as ROAD next
+  // to the pale kerbs in both lights
+  const roadMat = new THREE.MeshLambertMaterial({ color: 0x3a3e46 });
+  const walkMat = new THREE.MeshLambertMaterial({ color: 0xc4ad8a });
   const roadGeoX = new THREE.PlaneGeometry(940, W.roadWidth);
   const roadGeoZ = new THREE.PlaneGeometry(W.roadWidth, 880);
   const walkGeoX = new THREE.PlaneGeometry(940, W.roadWidth + 7);
   const walkGeoZ = new THREE.PlaneGeometry(W.roadWidth + 7, 880);
-  // centre dashes for every avenue are merged into ONE geometry per orientation —
-  // four hundred separate dash meshes would cost four hundred draw calls
-  const dashPos = [];
-  function dashQuad(cx, cz, len, wid, alongX) {
-    const hl = len / 2, hw = wid / 2;
-    const x0 = alongX ? cx - hl : cx - hw, x1 = alongX ? cx + hl : cx + hw;
-    const z0 = alongX ? cz - hw : cz - hl, z1 = alongX ? cz + hw : cz + hl;
-    dashPos.push(x0, 0.09, z0, x1, 0.09, z0, x0, 0.09, z1, x1, 0.09, z0, x1, 0.09, z1, x0, 0.09, z1);
-  }
   for (const z of CS.avenuesZ) {
     const walk = new THREE.Mesh(walkGeoX, walkMat);
     walk.rotation.x = -Math.PI / 2; walk.position.set(0, 0.03, z); walk.receiveShadow = true; scene.add(walk);
     const road = new THREE.Mesh(roadGeoX, roadMat);
     road.rotation.x = -Math.PI / 2; road.position.set(0, 0.06, z); road.receiveShadow = true; scene.add(road);
-    for (let x = -450; x < 460; x += 30) dashQuad(x, z, 10, 0.85, true);
   }
   for (const x of CS.avenuesX) {
     const walk = new THREE.Mesh(walkGeoZ, walkMat);
     walk.rotation.x = -Math.PI / 2; walk.position.set(x, 0.03, -20); walk.receiveShadow = true; scene.add(walk);
     const road = new THREE.Mesh(roadGeoZ, roadMat);
     road.rotation.x = -Math.PI / 2; road.position.set(x, 0.06, -20); road.receiveShadow = true; scene.add(road);
-    for (let z = -450; z < 400; z += 30) dashQuad(x, z, 10, 0.85, false);
   }
-  const dashGeo = new THREE.BufferGeometry();
-  dashGeo.setAttribute('position', new THREE.Float32BufferAttribute(dashPos, 3));
-  const dashes = new THREE.Mesh(dashGeo, lineMat);
-  scene.add(dashes);
-  // zebra crossings at every intersection, merged the same way: five stripes
-  // across each approach, so a junction reads as a junction from the camera
-  const zebPos = [];
-  function zebQuad(cx, cz, len, wid, alongX) {
+  // --- the full marking set, merged into two geometries (white / yellow) --------
+  // Double-yellow centre lines and white edge lines run block to block (they
+  // stop at each junction so they never paint over a crossing); zebra crossings
+  // sit ON the carriageway just clear of each junction mouth; a stop line waits
+  // before every crossing on the approach side; and a direction arrow lies in
+  // every lane every block or so, pointing the way the traffic in that lane
+  // actually travels (right-hand traffic — see traffic.js laneOffsetFor).
+  const whitePos = [], yellowPos = [];
+  function markQuad(arr, y, cx, cz, len, wid, alongX) {
     const hl = len / 2, hw = wid / 2;
     const x0 = alongX ? cx - hl : cx - hw, x1 = alongX ? cx + hl : cx + hw;
     const z0 = alongX ? cz - hw : cz - hl, z1 = alongX ? cz + hw : cz + hl;
-    zebPos.push(x0, 0.08, z0, x1, 0.08, z0, x0, 0.08, z1, x1, 0.08, z0, x1, 0.08, z1, x0, 0.08, z1);
+    arr.push(x0, y, z0, x1, y, z0, x0, y, z1, x1, y, z0, x1, y, z1, x0, y, z1);
   }
-  for (const ax of CS.avenuesX) for (const az of CS.avenuesZ) {
-    for (let s = -2; s <= 2; s++) {
-      zebQuad(ax + s * 2.6, az - 16.5, 1.5, 10, true);
-      zebQuad(ax + s * 2.6, az + 16.5, 1.5, 10, true);
-      zebQuad(ax - 16.5, az + s * 2.6, 1.5, 10, false);
-      zebQuad(ax + 16.5, az + s * 2.6, 1.5, 10, false);
+  function markTri(arr, y, ax, az, bx, bz, cx, cz) {
+    arr.push(ax, y, az, bx, y, bz, cx, y, cz);
+  }
+  // an arrow lying in a lane: shaft + head, pointing along (dx, dz)
+  function markArrow(cx, cz, dx, dz) {
+    const y = 0.085, px = dz, pz = dx; // perpendicular
+    markQuad(whitePos, y, cx, cz, 3.2, 0.55, dx !== 0);
+    const hx = cx + dx * 2.3, hz = cz + dz * 2.3;
+    const b1x = cx + dx * 0.9 + px * 1.0, b1z = cz + dz * 0.9 + pz * 1.0;
+    const b2x = cx + dx * 0.9 - px * 1.0, b2z = cz + dz * 0.9 - pz * 1.0;
+    markTri(whitePos, y, hx, hz, b1x, b1z, b2x, b2z);
+  }
+  const LANE = 5.6; // the lane centres, shared with traffic.js
+  // centre + edge lines, per block segment between junctions
+  for (const az of CS.avenuesZ) {
+    const cuts = [-470].concat(CS.avenuesX, [470]);
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const a = cuts[i] + (i === 0 ? 0 : 14.5), b = cuts[i + 1] - (i === cuts.length - 2 ? 0 : 14.5);
+      if (b - a < 8) continue;
+      const mid = (a + b) / 2, len = b - a;
+      markQuad(yellowPos, 0.09, mid, az - 0.75, len, 0.5, true);
+      markQuad(yellowPos, 0.09, mid, az + 0.75, len, 0.5, true);
+      markQuad(whitePos, 0.088, mid, az - 11.3, len, 0.45, true);
+      markQuad(whitePos, 0.088, mid, az + 11.3, len, 0.45, true);
+    }
+    // lane arrows: eastbound in the +LANE lane, westbound in the -LANE lane
+    for (let x = -408; x < 450; x += 82) {
+      let nearCross = false;
+      for (const ax of CS.avenuesX) if (Math.abs(x - ax) < 24) nearCross = true;
+      if (!nearCross) markArrow(x, az + LANE, 1, 0);
+      nearCross = false;
+      for (const ax of CS.avenuesX) if (Math.abs(x + 41 - ax) < 24) nearCross = true;
+      if (!nearCross) markArrow(x + 41, az - LANE, -1, 0);
     }
   }
-  const zebGeo = new THREE.BufferGeometry();
-  zebGeo.setAttribute('position', new THREE.Float32BufferAttribute(zebPos, 3));
-  const zebras = new THREE.Mesh(zebGeo, new THREE.MeshBasicMaterial({ color: 0xe9e6da }));
-  scene.add(zebras);
+  for (const ax of CS.avenuesX) {
+    const cuts = [-460].concat(CS.avenuesZ, [420]);
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const a = cuts[i] + (i === 0 ? 0 : 14.5), b = cuts[i + 1] - (i === cuts.length - 2 ? 0 : 14.5);
+      if (b - a < 8) continue;
+      const mid = (a + b) / 2, len = b - a;
+      markQuad(yellowPos, 0.09, ax - 0.75, mid, len, 0.5, false);
+      markQuad(yellowPos, 0.09, ax + 0.75, mid, len, 0.5, false);
+      markQuad(whitePos, 0.088, ax - 11.3, mid, len, 0.45, false);
+      markQuad(whitePos, 0.088, ax + 11.3, mid, len, 0.45, false);
+    }
+    for (let z = -398; z < 400; z += 82) {
+      let nearCross = false;
+      for (const az of CS.avenuesZ) if (Math.abs(z - az) < 24) nearCross = true;
+      if (!nearCross) markArrow(ax - LANE, z, 0, 1); // southbound, west lane
+      nearCross = false;
+      for (const az of CS.avenuesZ) if (Math.abs(z + 41 - az) < 24) nearCross = true;
+      if (!nearCross) markArrow(ax + LANE, z + 41, 0, -1); // northbound, east lane
+    }
+  }
+  // zebra crossings + stop lines at every intersection
+  for (const ax of CS.avenuesX) for (const az of CS.avenuesZ) {
+    for (const sideSign of [-1, 1]) {
+      // crossing over the east-west avenue, on this side of the junction
+      const cxp = ax + sideSign * 15.4;
+      for (let s = -2; s <= 2; s++) markQuad(whitePos, 0.082, cxp + s * 2.2, az, 20, 1.3, false);
+      // stop lines: traffic approaching this crossing stops 3.4 short of it,
+      // in its own right-hand lane — always on the upstream side, whichever
+      // side of the junction the crossing sits on
+      markQuad(whitePos, 0.084, cxp - 3.4, az + LANE + 0.5, 9, 0.55, false); // eastbound approach
+      markQuad(whitePos, 0.084, cxp + 3.4, az - LANE - 0.5, 9, 0.55, false); // westbound approach
+      // crossing over the north-south avenue, on this side of the junction
+      const czp = az + sideSign * 15.4;
+      for (let s = -2; s <= 2; s++) markQuad(whitePos, 0.082, ax, czp + s * 2.2, 20, 1.3, true);
+      markQuad(whitePos, 0.084, ax - LANE - 0.5, czp - 3.4, 9, 0.55, true); // southbound approach
+      markQuad(whitePos, 0.084, ax + LANE + 0.5, czp + 3.4, 9, 0.55, true); // northbound approach
+    }
+  }
+  function markMesh(posArr, color) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color }));
+    scene.add(mesh);
+    return mesh;
+  }
+  markMesh(whitePos, 0xf2efe4);
+  markMesh(yellowPos, 0xffcf4d);
 
   // --- buildings ------------------------------------------------------------------
   const facades = [];
@@ -363,39 +521,92 @@ function buildCostaSerenaCity(scene) {
         tower.traverse(function (o) { o.castShadow = true; });
         scene.add(tower);
       }
+      // an annex where the main house leaves room: a narrow row-house or shop
+      // shoulder-to-shoulder with it, so the block reads built-up instead of
+      // one slab adrift in a lot. It must fit between the main house and the
+      // pavement (44.5 from the block centre) without touching either.
+      if (bw < 52 && rng() < 0.62) {
+        const aw = 14 + rng() * 4, ad = 20 + rng() * 11, ah = 7 + rng() * 10;
+        const sideSign = rng() < 0.5 ? -1 : 1;
+        const axp = cx + sideSign * (bw / 2 + aw / 2 + 2.5);
+        if (Math.abs(axp - cx) + aw / 2 <= 44.5) {
+          const atex = facades[Math.floor(rng() * facades.length)];
+          const amat = new THREE.MeshLambertMaterial({ map: atex, emissive: 0xffffff, emissiveMap: atex, emissiveIntensity: 0.34 });
+          (G.facadeMats = G.facadeMats || []).push(amat);
+          const annex = new THREE.Mesh(boxGeo, [amat, amat, roofMat, roofMat, amat, amat]);
+          annex.scale.set(aw, ah, ad);
+          annex.position.set(axp, ah / 2, cz + (rng() - 0.5) * 8);
+          annex.castShadow = true; annex.receiveShadow = true;
+          scene.add(annex);
+          G.colliders.push({ x0: axp - aw / 2, x1: axp + aw / 2, z0: annex.position.z - ad / 2, z1: annex.position.z + ad / 2 });
+        }
+      }
     }
   }
+  // the perimeter: a first row of houses beyond the outer avenues, so the
+  // city's edge is a skyline and not a cliff of empty slab. They keep clear of
+  // the avenue mouths and carry colliders like any other building.
+  function perimeterBuilding(x, z) {
+    const bw2 = 30 + rng() * 15, bd2 = 26 + rng() * 12, bh2 = 10 + rng() * 15;
+    const tex = facades[Math.floor(rng() * facades.length)];
+    const mat = new THREE.MeshLambertMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.34 });
+    (G.facadeMats = G.facadeMats || []).push(mat);
+    const b = new THREE.Mesh(boxGeo, [mat, mat, roofMat, roofMat, mat, mat]);
+    b.scale.set(bw2, bh2, bd2);
+    b.position.set(x, bh2 / 2, z);
+    b.castShadow = true; b.receiveShadow = true;
+    scene.add(b);
+    G.colliders.push({ x0: x - bw2 / 2, x1: x + bw2 / 2, z0: z - bd2 / 2, z1: z + bd2 / 2 });
+  }
+  for (let x = -408; x <= 408; x += 82) { // the northern edge
+    let nearAve = false;
+    for (const ax of CS.avenuesX) if (Math.abs(x - ax) < 30) nearAve = true;
+    if (!nearAve && rng() < 0.85) perimeterBuilding(x + (rng() - 0.5) * 10, -412);
+  }
+  for (let z = -330; z <= 270; z += 82) { // the western and eastern edges
+    let nearAve = false;
+    for (const az of CS.avenuesZ) if (Math.abs(z - az) < 30) nearAve = true;
+    if (nearAve) continue;
+    if (rng() < 0.8) perimeterBuilding(-414, z + (rng() - 0.5) * 10);
+    if (rng() < 0.8) perimeterBuilding(414, z + (rng() - 0.5) * 10);
+  }
 
-  // --- palms: doubled rows along the shore and the great boulevards ----------------
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x8a6a4a });
-  const frondMat = new THREE.MeshLambertMaterial({ color: 0x3e8a4f });
+  // --- palms: rows along the shore and the great boulevards -----------------------
+  // Placement discipline: a palm goes on a pavement, the promenade or the sand
+  // — NEVER on a carriageway. plantPalm itself refuses a road point (the old
+  // beachfront row stood at z=360, the centre of the shore avenue, and avenue
+  // rows could drift into the crossing avenue's lanes at junctions).
+  G.palmCrowns = [];
   function plantPalm(x, z) {
-    const palm = makePalmTree(rng, trunkMat, frondMat);
+    if (onCarriageway(x, z, 1.4)) return;
+    const palm = makePalmTree(rng);
     palm.position.set(x, 0, z);
     palm.rotation.y = rng() * Math.PI * 2;
     scene.add(palm);
+    G.palmCrowns.push({ g: palm.userData.crown, p: rng() * 6.28 });
   }
-  for (let x = -445; x <= 445; x += 21) { // the beachfront double row
-    plantPalm(x + (rng() - 0.5) * 5, W.beachZ - 24 + (rng() - 0.5) * 4);
-    plantPalm(x + 10 + (rng() - 0.5) * 5, W.beachZ - 33 + (rng() - 0.5) * 4);
+  for (let x = -445; x <= 445; x += 21) { // the promenade double row, south of the shore road
+    plantPalm(x + (rng() - 0.5) * 5, 379.5 + (rng() - 0.5) * 3);
+    plantPalm(x + 10 + (rng() - 0.5) * 5, 389 + (rng() - 0.5) * 3);
   }
-  for (const bz of [240, 360, 0]) { // Boulevard Brisa, Paseo del Puerto, Avenida del Sol
+  for (let x = -445; x <= 445; x += 26) { // the shore road's north pavement
+    if (rng() < 0.85) plantPalm(x + (rng() - 0.5) * 5, 360 - 14.3 + (rng() - 0.5) * 1.6);
+  }
+  for (const bz of [240, 0]) { // Boulevard Brisa, Avenida del Sol
     for (let x = -445; x <= 445; x += 23) {
-      if (rng() < 0.88) plantPalm(x + (rng() - 0.5) * 5, bz - 15.5 + (rng() - 0.5) * 2);
-      if (rng() < 0.88) plantPalm(x + 11 + (rng() - 0.5) * 5, bz + 15.5 + (rng() - 0.5) * 2);
+      if (rng() < 0.88) plantPalm(x + (rng() - 0.5) * 5, bz - 14.3 + (rng() - 0.5) * 1.6);
+      if (rng() < 0.88) plantPalm(x + 11 + (rng() - 0.5) * 5, bz + 14.3 + (rng() - 0.5) * 1.6);
     }
   }
   for (const bx of [0, -120, 240]) { // the great north-south avenues
     for (let z = -435; z <= 345; z += 27) {
-      if (rng() < 0.8) plantPalm(bx - 15.5 + (rng() - 0.5) * 2, z + (rng() - 0.5) * 6);
-      if (rng() < 0.8) plantPalm(bx + 15.5 + (rng() - 0.5) * 2, z + 13 + (rng() - 0.5) * 6);
+      if (rng() < 0.8) plantPalm(bx - 14.3 + (rng() - 0.5) * 1.6, z + (rng() - 0.5) * 6);
+      if (rng() < 0.8) plantPalm(bx + 14.3 + (rng() - 0.5) * 1.6, z + 13 + (rng() - 0.5) * 6);
     }
   }
   for (let i = 0; i < 46; i++) { // scattered singles on the remaining avenues
-    const palm = makePalmTree(rng, trunkMat, frondMat);
     const ax = CS.avenuesX[Math.floor(rng() * CS.avenuesX.length)];
-    palm.position.set(ax + (rng() < 0.5 ? -16 : 16), 0, -430 + rng() * 790);
-    scene.add(palm);
+    plantPalm(ax + (rng() < 0.5 ? -14.6 : 14.6), -430 + rng() * 790);
   }
 
   // --- lamps: on for the evening, each with a halo sprite ----------------------------
@@ -406,6 +617,7 @@ function buildCostaSerenaCity(scene) {
   const lampGlowMat = new THREE.SpriteMaterial({ map: G.glowTexture, color: 0xffc98a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 });
   G.lampGlowMat = lampGlowMat;
   function plantLamp(x, z) {
+    if (onCarriageway(x, z, 1.2)) return; // a lamp post belongs on the pavement
     const lamp = new THREE.Mesh(lampGeo, lampMat);
     lamp.position.set(x, 3.2, z); scene.add(lamp);
     const bulb = new THREE.Mesh(bulbGeo, bulbMat);
@@ -459,21 +671,36 @@ function buildCostaSerenaCity(scene) {
     st.position.set(x, 0, z); st.rotation.y = ry; st.traverse(function (o) { o.castShadow = true; });
     scene.add(st);
   }
-  const furnitureAvenues = [240, 0, 360, -120, 120];
+  function plantFurniture(x, z, ry) {
+    if (onCarriageway(x, z, 1.6)) return; // furniture lives on pavements only
+    const pick = rng();
+    if (pick < 0.34) plantBench(x, z, ry);
+    else if (pick < 0.58) plantPlanter(x, z);
+    else if (pick < 0.78) plantCrates(x, z);
+    else plantBusStop(x, z, ry);
+  }
+  const furnitureAvenues = [240, 0, 360, -120, 120, -240, -360];
   for (const az of furnitureAvenues) {
     for (let x = -400; x < 430; x += 57) {
-      const side = rng() < 0.5 ? -14.8 : 14.8;
-      const pick = rng();
-      if (pick < 0.34) plantBench(x + (rng() - 0.5) * 8, az + side, side > 0 ? Math.PI : 0);
-      else if (pick < 0.58) plantPlanter(x + (rng() - 0.5) * 8, az + side);
-      else if (pick < 0.78) plantCrates(x + (rng() - 0.5) * 8, az + side);
-      else plantBusStop(x + (rng() - 0.5) * 8, az + side, side > 0 ? Math.PI : 0);
+      const side = rng() < 0.5 ? -14.1 : 14.1;
+      plantFurniture(x + (rng() - 0.5) * 8, az + side, side > 0 ? Math.PI : 0);
     }
+  }
+  for (const ax of [-240, 360]) { // and up two north-south avenues
+    for (let z = -390; z < 330; z += 63) {
+      const side = rng() < 0.5 ? -14.1 : 14.1;
+      plantFurniture(ax + side, z + (rng() - 0.5) * 8, side > 0 ? Math.PI / 2 : -Math.PI / 2);
+    }
+  }
+  for (let x = -410; x < 430; x += 47) { // the promenade: planters and benches facing the sea
+    if (rng() < 0.4) continue;
+    plantFurniture(x + (rng() - 0.5) * 8, 377.5, Math.PI);
   }
   // market stalls down Calle Mercado: striped canopies over laden tables
   const stallCols = [0xd94f3d, 0xf2b13d, 0x3dd9a4, 0xff5c8a];
   for (let x = -320; x <= 320; x += 46) {
     if (rng() < 0.25) continue;
+    if (onCarriageway(x, -105, 2) || onCarriageway(x, -135, 2)) continue; // never in a crossing avenue's lanes
     const st = new THREE.Group();
     const table = new THREE.Mesh(propBox, benchMat); table.scale.set(5.4, 0.9, 2.2); table.position.y = 0.45; st.add(table);
     const goods = new THREE.Mesh(propBox, new THREE.MeshLambertMaterial({ color: stallCols[Math.floor(rng() * 4)] }));
@@ -495,7 +722,7 @@ function buildCostaSerenaCity(scene) {
     top.position.y = 2.7; um.add(top);
     const towel = new THREE.Mesh(propBox, new THREE.MeshLambertMaterial({ color: umbCols[Math.floor(rng() * 5)] }));
     towel.scale.set(1.1, 0.05, 2.2); towel.position.set(1.6, 0.05, 0.6); um.add(towel);
-    um.position.set(x + (rng() - 0.5) * 10, 0.02, W.beachZ + 8 + rng() * 26);
+    um.position.set(x + (rng() - 0.5) * 10, 0.02, W.beachZ + 5 + rng() * 14); // on the sand, short of the waterline
     um.traverse(function (o) { o.castShadow = true; });
     scene.add(um);
   }
@@ -528,7 +755,11 @@ function buildCostaSerenaCity(scene) {
       const paint = CAR_PAINTS[Math.floor(rng() * CAR_PAINTS.length)];
       const kindPick = rng();
       const kind = kindPick < 0.12 ? 'pickup' : (kindPick < 0.24 ? 'van' : (kindPick < 0.36 ? 'taxi' : 'car'));
-      const ang = row.axis === 'z' ? (sideSign > 0 ? -Math.PI / 2 : Math.PI / 2) : (sideSign > 0 ? Math.PI : 0);
+      // parked parallel WITH the flow of the lane beside the kerb: on an
+      // east-west avenue the southern kerb serves the eastbound lane, the
+      // northern kerb the westbound; on a north-south avenue the eastern kerb
+      // serves northbound, the western kerb southbound
+      const ang = row.axis === 'z' ? (sideSign > 0 ? Math.PI / 2 : -Math.PI / 2) : (sideSign > 0 ? Math.PI : 0);
       const car = spawnCar(scene, x, z, ang, kind === 'taxi' ? 0xf7c948 : paint, kind);
       car.parked = true;
       G.traffic.push(car);

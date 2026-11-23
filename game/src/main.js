@@ -88,6 +88,13 @@ function gameLoop(nowMs) {
       G.boats[i].rotation.z = Math.sin(G.time * 0.9 + i) * 0.02;
     }
   }
+  // the palm crowns sway in the sea breeze — a few degrees of group rotation
+  // on the crown only, so the trees feel planted but alive
+  if (G.palmCrowns) for (let i = 0; i < G.palmCrowns.length; i++) {
+    const pc = G.palmCrowns[i];
+    pc.g.rotation.z = Math.sin(G.time * 0.9 + pc.p) * 0.045;
+    pc.g.rotation.x = Math.cos(G.time * 0.73 + pc.p * 1.3) * 0.03;
+  }
 
   if (G.scene) {
     // staged screenshot: hold the pose, let peds stroll and the light sit still.
@@ -126,4 +133,22 @@ function gameLoop(nowMs) {
   G.renderer.render(G.scene3, G.camera);
 }
 
-window.addEventListener('DOMContentLoaded', bootCostaSerena);
+// Boot once the vendored fonts land (or a timeout passes): the facade canvases
+// and the minimap draw with Bungee/Rubik, and a texture baked in a fallback
+// font would keep the wrong letterforms for the whole session.
+let csBooted = false;
+function bootCostaSerenaOnce() { if (!csBooted) { csBooted = true; bootCostaSerena(); } }
+window.addEventListener('DOMContentLoaded', function () {
+  if (document.fonts && document.fonts.load) {
+    const loads = Promise.all([
+      document.fonts.load('16px Bungee'),
+      document.fonts.load('400 16px Rubik'),
+      document.fonts.load('700 16px Rubik')
+    ]);
+    const timeout = new Promise(function (res) { setTimeout(res, 1500); });
+    Promise.race([loads, timeout]).then(bootCostaSerenaOnce, bootCostaSerenaOnce);
+    setTimeout(bootCostaSerenaOnce, 2500); // absolute fallback
+  } else {
+    bootCostaSerenaOnce();
+  }
+});

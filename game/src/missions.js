@@ -128,7 +128,7 @@ function completeObjective() {
     G.money += m.def.reward;
     G.respect += m.def.respect;
     G.missionsDone.push(m.def.id);
-    showToast(m.def.name + ' COMPLETE  +$' + m.def.reward + '  ·  +' + m.def.respect + ' RESPECT', 4.5);
+    showToast(m.def.name + ' COMPLETE  +₡' + m.def.reward + '  ·  +' + m.def.respect + ' RESPECT', 4.5);
     playSfx('mission');
     G.mission = null;
     clearMarkers();
@@ -190,7 +190,7 @@ function updateMissions(dt) {
       if (!mk.taken && distance2D(px, pz, mk.x, mk.z) < 3.4) {
         mk.taken = true; G.scene3.remove(mk.group); m.collected++;
         G.money += 25; playSfx('pickup');
-        showToast('Package ' + m.collected + ' of ' + obj.points.length + '  (+$25)', 1.8);
+        showToast('Package ' + m.collected + ' of ' + obj.points.length + '  (+₡25)', 1.8);
       }
     }
     if (m.collected >= obj.points.length) completeObjective();

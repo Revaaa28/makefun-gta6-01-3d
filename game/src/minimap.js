@@ -37,12 +37,35 @@ function drawMinimap() {
   }
 
   // --- districts: subtle tint + our label style --------------------------------
-  g.font = '700 15px Verdana'; g.textAlign = 'center';
+  // The whole city fits in this circle, so a district cell is ~50px wide and a
+  // full-size label would overrun its neighbours and garble. Labels are drawn
+  // small, with a soft dark halo, the player's own district first — and any
+  // label that would collide with one already drawn is skipped, not stacked.
   for (const d of CS.districts) {
     g.fillStyle = d.tint + '4D';
     g.fillRect(wx(d.x0), wz(d.z0), (d.x1 - d.x0) * scale, (d.z1 - d.z0) * scale);
-    g.fillStyle = 'rgba(255,240,214,0.85)';
-    g.fillText(d.short, wx((d.x0 + d.x1) / 2), wz((d.z0 + d.z1) / 2));
+  }
+  g.font = '700 11px Rubik, Verdana, sans-serif'; g.textAlign = 'center';
+  const labelOrder = CS.districts.slice().sort(function (a, b) {
+    const da = (G.player && G.player.pos.x >= a.x0 && G.player.pos.x <= a.x1 && G.player.pos.z >= a.z0 && G.player.pos.z <= a.z1) ? 0 : 1;
+    const db = (G.player && G.player.pos.x >= b.x0 && G.player.pos.x <= b.x1 && G.player.pos.z >= b.z0 && G.player.pos.z <= b.z1) ? 0 : 1;
+    return da - db;
+  });
+  const drawnLabels = [];
+  for (const d of labelOrder) {
+    const lx = wx((d.x0 + d.x1) / 2), ly = wz((d.z0 + d.z1) / 2);
+    const w = g.measureText(d.short).width;
+    const rect = { x0: lx - w / 2 - 3, x1: lx + w / 2 + 3, y0: ly - 9, y1: ly + 5 };
+    let collides = false;
+    for (const r of drawnLabels) {
+      if (rect.x0 < r.x1 && rect.x1 > r.x0 && rect.y0 < r.y1 && rect.y1 > r.y0) { collides = true; break; }
+    }
+    if (collides) continue;
+    drawnLabels.push(rect);
+    g.fillStyle = 'rgba(16,19,26,0.55)';
+    g.fillText(d.short, lx + 1, ly + 1);
+    g.fillStyle = 'rgba(255,240,214,0.9)';
+    g.fillText(d.short, lx, ly);
   }
 
   // --- the street network: every avenue at its true width -----------------------
@@ -89,7 +112,7 @@ function drawMinimap() {
   // garage + personal car
   g.fillStyle = '#ffb020';
   g.fillRect(wx(CS.garage.x) - 6, wz(CS.garage.z) - 6, 12, 12);
-  g.fillStyle = '#10131a'; g.font = '700 11px Verdana'; g.fillText('G', wx(CS.garage.x), wz(CS.garage.z) + 4);
+  g.fillStyle = '#10131a'; g.font = '700 11px Rubik, Verdana, sans-serif'; g.fillText('G', wx(CS.garage.x), wz(CS.garage.z) + 4);
   if (G.personalCar && G.inCar !== G.personalCar) {
     g.fillStyle = '#ff5c8a';
     g.beginPath(); g.arc(wx(G.personalCar.pos.x), wz(G.personalCar.pos.z), 6, 0, 6.3); g.fill();
