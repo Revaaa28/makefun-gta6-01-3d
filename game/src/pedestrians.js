@@ -146,7 +146,7 @@ function updatePedestrians(dt) {
     ped.mesh.userData.legR.rotation.x = -swing;
     ped.mesh.userData.armL.rotation.x = -swing * 0.8;
     ped.mesh.userData.armR.rotation.x = swing * 0.8;
-    ped.mesh.position.y = Math.abs(Math.sin(ped.phase)) * 0.05;
+    ped.mesh.position.y = groundHeightAt(ped.pos.x, ped.pos.z) + Math.abs(Math.sin(ped.phase)) * 0.05;
   }
 }
 

@@ -198,7 +198,7 @@ function updatePlayer(dt) {
   p.mesh.userData.armR.rotation.x = swing * 0.85;
   p.mesh.position.copy(p.pos);
   p.mesh.rotation.y = p.angle;
-  p.mesh.position.y = Math.abs(Math.sin(p.phase)) * 0.06 * clampValue(p.speed / 5, 0, 1);
+  p.mesh.position.y = groundHeightAt(p.pos.x, p.pos.z) + Math.abs(Math.sin(p.phase)) * 0.06 * clampValue(p.speed / 5, 0, 1);
   updateChaseCamera(dt, p.pos, p.camYaw, p.camDist, 2.4 + p.camPitch * 4.2);
 }
 

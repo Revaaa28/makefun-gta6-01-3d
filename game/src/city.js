@@ -94,6 +94,27 @@ function makeGlowTexture(inner, outer) {
   return new THREE.CanvasTexture(c);
 }
 
+function makePavementTexture() {
+  // light concrete with a speckle, a dark slab joint on the u=0 edge (the tile
+  // repeats every 6 units along the street, so the joints march down the
+  // pavement) and a softer joint on v=0, the long line beside the kerb
+  const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#b3aca0'; g.fillRect(0, 0, 256, 256);
+  const rng = seededRandom(42);
+  for (let i = 0; i < 2600; i++) {
+    g.fillStyle = rng() < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
+    g.fillRect(rng() * 256, rng() * 256, 2, 2);
+  }
+  g.fillStyle = 'rgba(40,36,30,0.5)'; g.fillRect(0, 0, 4, 256);
+  g.fillStyle = 'rgba(255,255,255,0.20)'; g.fillRect(4, 0, 2, 256);
+  g.fillStyle = 'rgba(40,36,30,0.28)'; g.fillRect(0, 0, 256, 3);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 function makeSkyTexture() {
   // vertical dusk gradient: burnt orange at the horizon, rose, then mauve —
   // painted on a canvas and wrapped around the inside of a sky dome, so every
@@ -209,6 +230,22 @@ function onCarriageway(x, z, margin) {
   return false;
 }
 
+// The raised pavement: its top surface sits at PAVE_Y, a 0.15 kerb step above
+// the carriageway plane (0.06). The band runs from the asphalt edge (12.0) out
+// to 15.9 — peds walk its middle at ±14.1. Anyone standing on a band (or on
+// the shore promenade slab) stands PAVE_Y up; anywhere else is street level.
+const PAVE_Y = 0.21;
+const PAVE_IN = 12.0, PAVE_OUT = 15.9;
+function groundHeightAt(x, z) {
+  for (const ax of CS.avenuesX) if (Math.abs(x - ax) < PAVE_IN) return 0; // a N-S carriageway
+  for (const az of CS.avenuesZ) if (Math.abs(z - az) < PAVE_IN) return 0; // an E-W carriageway
+  const shoreAz = CS.avenuesZ[CS.avenuesZ.length - 1];
+  if (z > shoreAz + PAVE_IN - 0.1 && z < CS.world.beachZ + 2.5 && Math.abs(x) < 470) return PAVE_Y; // the promenade slab
+  for (const az of CS.avenuesZ) { const d = Math.abs(z - az); if (d >= PAVE_IN && d <= PAVE_OUT) return PAVE_Y; }
+  for (const ax of CS.avenuesX) { const d = Math.abs(x - ax); if (d >= PAVE_IN && d <= PAVE_OUT) return PAVE_Y; }
+  return 0;
+}
+
 const PALM_MAT = new THREE.MeshLambertMaterial({ vertexColors: true });
 const PALM_FROND_BASE = new THREE.CylinderGeometry(0.015, 0.13, 1, 4);
 PALM_FROND_BASE.translate(0, 0.5, 0); // base at the origin, tip at y=1
@@ -278,6 +315,8 @@ function makePalmTree(rng) {
   crown.add(crownMesh);
   palm.add(crown);
   palm.userData.crown = crown;
+  palm.userData.h = h;         // the string lights wind up this trunk in plantPalm
+  palm.userData.lean = leanAmt;
   return palm;
 }
 
@@ -348,30 +387,19 @@ function buildCostaSerenaCity(scene) {
   // daylight hemisphere; this tone keeps the carriageway reading as ROAD next
   // to the pale kerbs in both lights
   const roadMat = new THREE.MeshLambertMaterial({ color: 0x3a3e46 });
-  const walkMat = new THREE.MeshLambertMaterial({ color: 0xc4ad8a });
   const roadGeoX = new THREE.PlaneGeometry(940, W.roadWidth);
   const roadGeoZ = new THREE.PlaneGeometry(W.roadWidth, 880);
-  const walkGeoX = new THREE.PlaneGeometry(940, W.roadWidth + 7);
-  const walkGeoZ = new THREE.PlaneGeometry(W.roadWidth + 7, 880);
   for (const z of CS.avenuesZ) {
-    const walk = new THREE.Mesh(walkGeoX, walkMat);
-    walk.rotation.x = -Math.PI / 2; walk.position.set(0, 0.03, z); walk.receiveShadow = true; scene.add(walk);
     const road = new THREE.Mesh(roadGeoX, roadMat);
     road.rotation.x = -Math.PI / 2; road.position.set(0, 0.06, z); road.receiveShadow = true; scene.add(road);
   }
   for (const x of CS.avenuesX) {
-    const walk = new THREE.Mesh(walkGeoZ, walkMat);
-    walk.rotation.x = -Math.PI / 2; walk.position.set(x, 0.03, -20); walk.receiveShadow = true; scene.add(walk);
     const road = new THREE.Mesh(roadGeoZ, roadMat);
     road.rotation.x = -Math.PI / 2; road.position.set(x, 0.06, -20); road.receiveShadow = true; scene.add(road);
   }
-  // --- the full marking set, merged into two geometries (white / yellow) --------
-  // Double-yellow centre lines and white edge lines run block to block (they
-  // stop at each junction so they never paint over a crossing); zebra crossings
-  // sit ON the carriageway just clear of each junction mouth; a stop line waits
-  // before every crossing on the approach side; and a direction arrow lies in
-  // every lane every block or so, pointing the way the traffic in that lane
-  // actually travels (right-hand traffic — see traffic.js laneOffsetFor).
+  // --- flat paint helpers (the marking set below and the kerb rims both draw
+  // into these two merged geometries) -------------------------------------------
+  const MARK_Y = 0.115; // paint floats well clear of the asphalt: no z-fight dimming
   const whitePos = [], yellowPos = [];
   function markQuad(arr, y, cx, cz, len, wid, alongX) {
     const hl = len / 2, hw = wid / 2;
@@ -384,25 +412,139 @@ function buildCostaSerenaCity(scene) {
   }
   // an arrow lying in a lane: shaft + head, pointing along (dx, dz)
   function markArrow(cx, cz, dx, dz) {
-    const y = 0.085, px = dz, pz = dx; // perpendicular
-    markQuad(whitePos, y, cx, cz, 3.2, 0.55, dx !== 0);
-    const hx = cx + dx * 2.3, hz = cz + dz * 2.3;
-    const b1x = cx + dx * 0.9 + px * 1.0, b1z = cz + dz * 0.9 + pz * 1.0;
-    const b2x = cx + dx * 0.9 - px * 1.0, b2z = cz + dz * 0.9 - pz * 1.0;
+    const y = MARK_Y + 0.002, px = dz, pz = dx; // perpendicular
+    markQuad(whitePos, y, cx, cz, 4.2, 1.05, dx !== 0);
+    const hx = cx + dx * 2.9, hz = cz + dz * 2.9;
+    const b1x = cx + dx * 1.1 + px * 1.35, b1z = cz + dz * 1.1 + pz * 1.35;
+    const b2x = cx + dx * 1.1 - px * 1.35, b2z = cz + dz * 1.1 - pz * 1.35;
     markTri(whitePos, y, hx, hz, b1x, b1z, b2x, b2z);
   }
+  // --- pavements: a real raised sidewalk, not a painted strip -------------------
+  // Both sides of every avenue get the paved band (asphalt edge 12.0 → 15.9,
+  // the band peds walk at ±14.1): the top sits at PAVE_Y with slab joints in
+  // its UVs, a darker vertical kerb face steps down to the carriageway, and a
+  // bright rim line runs along the kerb edge — road → kerb → pavement reads
+  // at screenshot distance. EW bands own the corner squares where two
+  // pavements cross (NS bands stop short of them, and a small kerb face
+  // closes each corner's side); the shore avenue's south band is replaced by
+  // a wide promenade slab running out to the sand.
+  const pavePos = [], paveNor = [], paveUv = [], paveIdx = [];
+  const kerbPos = [], kerbNor = [], kerbIdx = [];
+  function paveTop(c1, c2, c3, c4, uv1, uv2, uv3, uv4) { // corners are [x, z] at PAVE_Y
+    const base = pavePos.length / 3;
+    pavePos.push(c1[0], PAVE_Y, c1[1], c2[0], PAVE_Y, c2[1], c3[0], PAVE_Y, c3[1], c4[0], PAVE_Y, c4[1]);
+    for (let i = 0; i < 4; i++) paveNor.push(0, 1, 0);
+    paveUv.push(uv1[0], uv1[1], uv2[0], uv2[1], uv3[0], uv3[1], uv4[0], uv4[1]);
+    paveIdx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  function kerbFace(x0, z0, x1, z1, yBot, nx, nz) { // a vertical quad from yBot up to PAVE_Y
+    const base = kerbPos.length / 3;
+    kerbPos.push(x0, yBot, z0, x1, yBot, z1, x1, PAVE_Y, z1, x0, PAVE_Y, z0);
+    for (let i = 0; i < 4; i++) kerbNor.push(nx, 0, nz);
+    kerbIdx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  function paveBandEW(az, s, a, b) {
+    const zIn = az + s * PAVE_IN, zOut = az + s * PAVE_OUT;
+    paveTop([a, zIn], [b, zIn], [b, zOut], [a, zOut], [a / 6, 0], [b / 6, 0], [b / 6, 1], [a / 6, 1]);
+    kerbFace(a, zIn, b, zIn, 0.02, 0, -s);
+    kerbFace(a, zOut, b, zOut, -0.02, 0, s);
+    markQuad(whitePos, PAVE_Y + 0.004, (a + b) / 2, az + s * (PAVE_IN + 0.17), b - a, 0.3, true);
+  }
+  function paveBandNS(ax, s, a, b) {
+    const xIn = ax + s * PAVE_IN, xOut = ax + s * PAVE_OUT;
+    paveTop([xIn, a], [xOut, a], [xOut, b], [xIn, b], [a / 6, 0], [a / 6, 1], [b / 6, 1], [b / 6, 0]);
+    kerbFace(xIn, a, xIn, b, 0.02, -s, 0);
+    kerbFace(xOut, a, xOut, b, -0.02, s, 0);
+    markQuad(whitePos, PAVE_Y + 0.004, ax + s * (PAVE_IN + 0.17), (a + b) / 2, b - a, 0.3, false);
+  }
+  const shoreAz = CS.avenuesZ[CS.avenuesZ.length - 1];
+  for (const az of CS.avenuesZ) { // EW bands: carriageway edge to carriageway edge
+    const cuts = [-470].concat(CS.avenuesX, [470]);
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const a = cuts[i] + (i === 0 ? 0 : PAVE_IN), b = cuts[i + 1] - (i === cuts.length - 2 ? 0 : PAVE_IN);
+      if (b - a < 4) continue;
+      for (const s of [-1, 1]) {
+        if (az === shoreAz && s === 1) continue; // the promenade slab replaces this band
+        paveBandEW(az, s, a, b);
+      }
+    }
+  }
+  for (const ax of CS.avenuesX) { // NS bands: stop at the corner squares
+    const cuts = [-460].concat(CS.avenuesZ, [430]);
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const a = cuts[i] + (i === 0 ? 0 : PAVE_OUT), b = cuts[i + 1] - (i === cuts.length - 2 ? 0 : PAVE_OUT);
+      if (b - a < 4) continue;
+      for (const s of [-1, 1]) paveBandNS(ax, s, a, b);
+    }
+  }
+  // corner squares: their tops come from the EW bands (or the promenade);
+  // these faces close the sides the bands don't reach
+  for (const ax of CS.avenuesX) for (const az of CS.avenuesZ) {
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const xA = ax + sx * PAVE_IN, xB = ax + sx * PAVE_OUT;
+      const z1 = az + sz * PAVE_IN;
+      const z2 = (az === shoreAz && sz === 1) ? az + 26.5 : az + sz * PAVE_OUT;
+      kerbFace(xA, z1, xA, z2, 0.02, -sx, 0); // faces the crossing carriageway
+      markQuad(whitePos, PAVE_Y + 0.004, ax + sx * (PAVE_IN + 0.17), (z1 + z2) / 2, Math.abs(z2 - z1), 0.3, false);
+      if (az === shoreAz && sz === 1) {
+        kerbFace(xA, az + 26.5, xB, az + 26.5, -0.02, 0, 1); // the promenade's south edge, corner stretch
+      } else {
+        kerbFace(xB, z1, xB, z2, -0.02, sx, 0); // faces the building block
+      }
+    }
+  }
+  // the promenade: one wide paved slab south of the shore road, out to the sand
+  const promZ0 = shoreAz + PAVE_IN - 0.1, promZ1 = CS.world.beachZ + 2.5;
+  const promV = (promZ1 - promZ0) / 3.9;
+  const pcuts = [-470].concat(CS.avenuesX, [470]);
+  for (let i = 0; i < pcuts.length - 1; i++) {
+    const a = pcuts[i] + (i === 0 ? 0 : PAVE_IN), b = pcuts[i + 1] - (i === pcuts.length - 2 ? 0 : PAVE_IN);
+    if (b - a < 4) continue;
+    paveTop([a, promZ0], [b, promZ0], [b, promZ1], [a, promZ1], [a / 6, 0], [b / 6, 0], [b / 6, promV], [a / 6, promV]);
+    kerbFace(a, promZ0, b, promZ0, 0.02, 0, -1);
+    kerbFace(a, promZ1, b, promZ1, -0.02, 0, 1);
+    markQuad(whitePos, PAVE_Y + 0.004, (a + b) / 2, promZ0 + 0.17, b - a, 0.3, true);
+  }
+  const paveGeo = new THREE.BufferGeometry();
+  paveGeo.setAttribute('position', new THREE.Float32BufferAttribute(pavePos, 3));
+  paveGeo.setAttribute('normal', new THREE.Float32BufferAttribute(paveNor, 3));
+  paveGeo.setAttribute('uv', new THREE.Float32BufferAttribute(paveUv, 2));
+  paveGeo.setIndex(paveIdx);
+  const paveMesh = new THREE.Mesh(paveGeo, new THREE.MeshLambertMaterial({ map: makePavementTexture(), side: THREE.DoubleSide }));
+  paveMesh.receiveShadow = true; scene.add(paveMesh);
+  const kerbGeo = new THREE.BufferGeometry();
+  kerbGeo.setAttribute('position', new THREE.Float32BufferAttribute(kerbPos, 3));
+  kerbGeo.setAttribute('normal', new THREE.Float32BufferAttribute(kerbNor, 3));
+  kerbGeo.setIndex(kerbIdx);
+  const kerbMesh = new THREE.Mesh(kerbGeo, new THREE.MeshLambertMaterial({ color: 0x8d8676, side: THREE.DoubleSide }));
+  kerbMesh.receiveShadow = true; scene.add(kerbMesh);
+  // --- the full marking set, merged into two geometries (white / yellow) --------
+  // Painted BOLD, because at screenshot distance a half-unit line is no line
+  // at all: double-yellow centre lines 0.85 wide in saturated yellow, white
+  // edge lines 0.9, and a dashed divider down the centre of every lane (the
+  // ±5.6 the traffic drives on) — dashes 4.2 long and 1.05 wide, bright
+  // white, floating at MARK_Y so neither light washes them out. Centre and
+  // edge lines run block to block (they stop at each junction so they never
+  // paint over a crossing); zebra crossings sit ON the carriageway just clear
+  // of each junction mouth; a stop line waits before every crossing on the
+  // approach side; and a direction arrow lies in every lane every block or
+  // so, pointing the way the traffic in that lane actually travels
+  // (right-hand traffic — see traffic.js laneOffsetFor).
   const LANE = 5.6; // the lane centres, shared with traffic.js
-  // centre + edge lines, per block segment between junctions
+  // centre + edge lines + lane dashes, per block segment between junctions
   for (const az of CS.avenuesZ) {
     const cuts = [-470].concat(CS.avenuesX, [470]);
     for (let i = 0; i < cuts.length - 1; i++) {
       const a = cuts[i] + (i === 0 ? 0 : 14.5), b = cuts[i + 1] - (i === cuts.length - 2 ? 0 : 14.5);
       if (b - a < 8) continue;
       const mid = (a + b) / 2, len = b - a;
-      markQuad(yellowPos, 0.09, mid, az - 0.75, len, 0.5, true);
-      markQuad(yellowPos, 0.09, mid, az + 0.75, len, 0.5, true);
-      markQuad(whitePos, 0.088, mid, az - 11.3, len, 0.45, true);
-      markQuad(whitePos, 0.088, mid, az + 11.3, len, 0.45, true);
+      markQuad(yellowPos, MARK_Y + 0.004, mid, az - 0.95, len, 0.85, true);
+      markQuad(yellowPos, MARK_Y + 0.004, mid, az + 0.95, len, 0.85, true);
+      markQuad(whitePos, MARK_Y, mid, az - 11.15, len, 0.9, true);
+      markQuad(whitePos, MARK_Y, mid, az + 11.15, len, 0.9, true);
+      for (const s of [-1, 1]) for (let d = a + 1; d + 4.2 <= b; d += 7.6) {
+        markQuad(whitePos, MARK_Y + 0.002, d + 2.1, az + s * LANE, 4.2, 1.05, true);
+      }
     }
     // lane arrows: eastbound in the +LANE lane, westbound in the -LANE lane
     for (let x = -408; x < 450; x += 82) {
@@ -420,10 +562,13 @@ function buildCostaSerenaCity(scene) {
       const a = cuts[i] + (i === 0 ? 0 : 14.5), b = cuts[i + 1] - (i === cuts.length - 2 ? 0 : 14.5);
       if (b - a < 8) continue;
       const mid = (a + b) / 2, len = b - a;
-      markQuad(yellowPos, 0.09, ax - 0.75, mid, len, 0.5, false);
-      markQuad(yellowPos, 0.09, ax + 0.75, mid, len, 0.5, false);
-      markQuad(whitePos, 0.088, ax - 11.3, mid, len, 0.45, false);
-      markQuad(whitePos, 0.088, ax + 11.3, mid, len, 0.45, false);
+      markQuad(yellowPos, MARK_Y + 0.004, ax - 0.95, mid, len, 0.85, false);
+      markQuad(yellowPos, MARK_Y + 0.004, ax + 0.95, mid, len, 0.85, false);
+      markQuad(whitePos, MARK_Y, ax - 11.15, mid, len, 0.9, false);
+      markQuad(whitePos, MARK_Y, ax + 11.15, mid, len, 0.9, false);
+      for (const s of [-1, 1]) for (let d = a + 1; d + 4.2 <= b; d += 7.6) {
+        markQuad(whitePos, MARK_Y + 0.002, ax + s * LANE, d + 2.1, 4.2, 1.05, false);
+      }
     }
     for (let z = -398; z < 400; z += 82) {
       let nearCross = false;
@@ -439,28 +584,32 @@ function buildCostaSerenaCity(scene) {
     for (const sideSign of [-1, 1]) {
       // crossing over the east-west avenue, on this side of the junction
       const cxp = ax + sideSign * 15.4;
-      for (let s = -2; s <= 2; s++) markQuad(whitePos, 0.082, cxp + s * 2.2, az, 20, 1.3, false);
+      for (let s = -2; s <= 2; s++) markQuad(whitePos, MARK_Y - 0.002, cxp + s * 2.6, az, 21, 1.7, false);
       // stop lines: traffic approaching this crossing stops 3.4 short of it,
       // in its own right-hand lane — always on the upstream side, whichever
       // side of the junction the crossing sits on
-      markQuad(whitePos, 0.084, cxp - 3.4, az + LANE + 0.5, 9, 0.55, false); // eastbound approach
-      markQuad(whitePos, 0.084, cxp + 3.4, az - LANE - 0.5, 9, 0.55, false); // westbound approach
+      markQuad(whitePos, MARK_Y + 0.002, cxp - 3.4, az + LANE + 0.5, 9.5, 1.0, false); // eastbound approach
+      markQuad(whitePos, MARK_Y + 0.002, cxp + 3.4, az - LANE - 0.5, 9.5, 1.0, false); // westbound approach
       // crossing over the north-south avenue, on this side of the junction
       const czp = az + sideSign * 15.4;
-      for (let s = -2; s <= 2; s++) markQuad(whitePos, 0.082, ax, czp + s * 2.2, 20, 1.3, true);
-      markQuad(whitePos, 0.084, ax - LANE - 0.5, czp - 3.4, 9, 0.55, true); // southbound approach
-      markQuad(whitePos, 0.084, ax + LANE + 0.5, czp + 3.4, 9, 0.55, true); // northbound approach
+      for (let s = -2; s <= 2; s++) markQuad(whitePos, MARK_Y - 0.002, ax, czp + s * 2.6, 21, 1.7, true);
+      markQuad(whitePos, MARK_Y + 0.002, ax - LANE - 0.5, czp - 3.4, 9.5, 1.0, true); // southbound approach
+      markQuad(whitePos, MARK_Y + 0.002, ax + LANE + 0.5, czp + 3.4, 9.5, 1.0, true); // northbound approach
     }
   }
   function markMesh(posArr, color) {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
-    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color }));
+    // DoubleSide is load-bearing: markQuad winds its triangles with the front
+    // face pointing DOWN, so a front-side-only material culls every quad
+    // viewed from above — the paint existed geometrically for two passes and
+    // never once rendered. DoubleSide draws it regardless of winding.
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color, side: THREE.DoubleSide }));
     scene.add(mesh);
     return mesh;
   }
-  markMesh(whitePos, 0xf2efe4);
-  markMesh(yellowPos, 0xffcf4d);
+  markMesh(whitePos, 0xffffff);
+  markMesh(yellowPos, 0xffc21f);
 
   // --- buildings ------------------------------------------------------------------
   const facades = [];
@@ -577,13 +726,37 @@ function buildCostaSerenaCity(scene) {
   // beachfront row stood at z=360, the centre of the shore avenue, and avenue
   // rows could drift into the crossing avenue's lanes at junctions).
   G.palmCrowns = [];
+  // String lights: every palm gets a helix of warm bulbs wound up its trunk,
+  // baked into ONE city-wide Points cloud (world positions, so a whole
+  // boulevard of wrapped palms costs a single draw call). Each crown entry
+  // remembers its bulbs' index range so scenes.js can sink a hidden palm's
+  // lights along with its trunk.
+  const stringPos = [], stringCol = [];
+  const STRING_PALETTE = [0xffb45e, 0xffc98a, 0xff9e64, 0xffe3ae, 0xffb45e, 0xffc98a, 0xff8a5c];
   function plantPalm(x, z) {
     if (onCarriageway(x, z, 1.4)) return;
     const palm = makePalmTree(rng);
-    palm.position.set(x, 0, z);
+    const gy = groundHeightAt(x, z);
+    palm.position.set(x, gy, z);
     palm.rotation.y = rng() * Math.PI * 2;
     scene.add(palm);
-    G.palmCrowns.push({ g: palm.userData.crown, p: rng() * 6.28 });
+    const h = palm.userData.h, lean = palm.userData.lean;
+    const start = stringPos.length / 3;
+    const phase = rng() * Math.PI * 2, turns = 4.5, steps = 46;
+    const cy = Math.cos(palm.rotation.y), sy = Math.sin(palm.rotation.y);
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const y = 0.7 + t * (h - 1.4); // the lit stretch: knee height to just under the crown
+      const tt = y / h;
+      const cx = lean * tt * tt; // the trunk's centre follows its own bend curve
+      const r = (0.37 - 0.18 * tt) + 0.17; // ride just off the bark
+      const a = phase + t * turns * Math.PI * 2;
+      const lx = cx + Math.cos(a) * r, lz = Math.sin(a) * r;
+      stringPos.push(x + lx * cy + lz * sy, gy + y, z - lx * sy + lz * cy);
+      const c = STRING_PALETTE[Math.floor(rng() * STRING_PALETTE.length)];
+      stringCol.push(((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255);
+    }
+    G.palmCrowns.push({ g: palm.userData.crown, p: rng() * 6.28, slStart: start, slCount: steps + 1 });
   }
   for (let x = -445; x <= 445; x += 21) { // the promenade double row, south of the shore road
     plantPalm(x + (rng() - 0.5) * 5, 379.5 + (rng() - 0.5) * 3);
@@ -609,25 +782,86 @@ function buildCostaSerenaCity(scene) {
     plantPalm(ax + (rng() < 0.5 ? -14.6 : 14.6), -430 + rng() * 790);
   }
 
-  // --- lamps: on for the evening, each with a halo sprite ----------------------------
+  // the string lights, drawn: one Points cloud for every wrapped palm in the
+  // city — warm bulbs with the shared glow texture, additive, dusk-only
+  // (setDaylight switches the shared material off under the morning sky)
+  const stringGeo = new THREE.BufferGeometry();
+  stringGeo.setAttribute('position', new THREE.Float32BufferAttribute(stringPos, 3));
+  stringGeo.setAttribute('color', new THREE.Float32BufferAttribute(stringCol, 3));
+  const stringMat = new THREE.PointsMaterial({
+    map: G.glowTexture, size: 0.85, sizeAttenuation: true, vertexColors: true,
+    transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending
+  });
+  const stringPts = new THREE.Points(stringGeo, stringMat);
+  stringPts.renderOrder = 4;
+  scene.add(stringPts);
+  G.stringGeo = stringGeo;
+  G.stringLightMat = stringMat;
+
+  // --- lamps: a lit street at dusk, not just posts --------------------------------
+  // Posts line BOTH sides of every avenue, staggered every 56 units. Each one
+  // carries three reads: a bright bulb, a halo (all halos share ONE Points
+  // cloud), and a pool of warm light spilled across the kerb onto the road —
+  // all pools merged into one additive mesh of gradient discs, wide enough
+  // along the avenue that neighbouring pools overlap into a lit boulevard.
+  // setDaylight switches pools/halos/bulbs off under the morning sky.
   const lampMat = new THREE.MeshLambertMaterial({ color: 0x2c2f36 });
-  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffe2a8 });
+  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffe9bb });
   const lampGeo = new THREE.CylinderGeometry(0.14, 0.18, 6.4, 5);
-  const bulbGeo = new THREE.SphereGeometry(0.42, 8, 6);
-  const lampGlowMat = new THREE.SpriteMaterial({ map: G.glowTexture, color: 0xffc98a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 });
-  G.lampGlowMat = lampGlowMat;
-  function plantLamp(x, z) {
-    if (onCarriageway(x, z, 1.2)) return; // a lamp post belongs on the pavement
-    const lamp = new THREE.Mesh(lampGeo, lampMat);
-    lamp.position.set(x, 3.2, z); scene.add(lamp);
-    const bulb = new THREE.Mesh(bulbGeo, bulbMat);
-    bulb.position.set(x, 6.6, z); scene.add(bulb);
-    const glow = new THREE.Sprite(lampGlowMat);
-    glow.scale.set(5.2, 5.2, 1); glow.position.set(x, 6.6, z);
-    scene.add(glow);
+  const bulbGeo = new THREE.SphereGeometry(0.5, 8, 6);
+  const lampGlowPts = [];
+  const poolPos = [], poolUv = [], poolIdx = [];
+  const POOL_Y = PAVE_Y + 0.015; // the spill lies over pavement and asphalt alike
+  function poolDisc(cx, cz, rx, rz) {
+    const seg = 18, base = poolPos.length / 3;
+    poolPos.push(cx, POOL_Y, cz); poolUv.push(0.5, 0.5);
+    for (let i = 0; i <= seg; i++) {
+      const a = (i / seg) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+      poolPos.push(cx + ca * rx, POOL_Y, cz + sa * rz); poolUv.push(0.5 + ca * 0.5, 0.5 + sa * 0.5);
+    }
+    for (let i = 1; i <= seg; i++) poolIdx.push(base, base + i, base + i + 1);
   }
-  for (const ax of CS.avenuesX) for (let z = -420; z < 380; z += 84) plantLamp(ax + 14.5, z);
-  for (const az of CS.avenuesZ) for (let x = -420; x < 440; x += 84) plantLamp(x, az + 14.5);
+  function plantLamp(x, z, poolCx, poolCz, alongX) {
+    if (onCarriageway(x, z, 1.2)) return; // a lamp post belongs on the pavement
+    const gy = groundHeightAt(x, z);
+    const lamp = new THREE.Mesh(lampGeo, lampMat);
+    lamp.position.set(x, 3.2 + gy, z); scene.add(lamp);
+    const bulb = new THREE.Mesh(bulbGeo, bulbMat);
+    bulb.position.set(x, 6.6 + gy, z); scene.add(bulb);
+    lampGlowPts.push(x, 6.6 + gy, z);
+    poolDisc(poolCx, poolCz, alongX ? 15 : 10.5, alongX ? 10.5 : 15);
+  }
+  for (const ax of CS.avenuesX) for (let z = -420; z < 380; z += 56) {
+    plantLamp(ax + 14.5, z, ax + PAVE_IN + 0.2, z, false);
+    plantLamp(ax - 14.5, z + 28, ax - PAVE_IN - 0.2, z + 28, false);
+  }
+  for (const az of CS.avenuesZ) for (let x = -420; x < 440; x += 56) {
+    plantLamp(x, az + 14.5, x, az + PAVE_IN + 0.2, true);
+    plantLamp(x + 28, az - 14.5, x + 28, az - PAVE_IN - 0.2, true);
+  }
+  const poolGeo = new THREE.BufferGeometry();
+  poolGeo.setAttribute('position', new THREE.Float32BufferAttribute(poolPos, 3));
+  poolGeo.setAttribute('uv', new THREE.Float32BufferAttribute(poolUv, 2));
+  poolGeo.setIndex(poolIdx);
+  const poolMat = new THREE.MeshBasicMaterial({
+    map: makeGlowTexture('rgba(255,214,150,1)', 'rgba(255,150,70,0.5)'), color: 0xffb066,
+    transparent: true, opacity: 0.42, depthWrite: false, blending: THREE.AdditiveBlending
+  });
+  const poolMesh = new THREE.Mesh(poolGeo, poolMat);
+  poolMesh.renderOrder = 3;
+  scene.add(poolMesh);
+  G.lampPoolMat = poolMat;
+  const lampGlowGeo = new THREE.BufferGeometry();
+  lampGlowGeo.setAttribute('position', new THREE.Float32BufferAttribute(lampGlowPts, 3));
+  const lampGlowMat = new THREE.PointsMaterial({
+    map: G.glowTexture, color: 0xffc98a, size: 7.5, sizeAttenuation: true,
+    transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending
+  });
+  const lampGlowCloud = new THREE.Points(lampGlowGeo, lampGlowMat);
+  lampGlowCloud.renderOrder = 4;
+  scene.add(lampGlowCloud);
+  G.lampGlowMat = lampGlowMat;
+  G.lampBulbMat = bulbMat;
 
   // --- street furniture: the props that make a street look lived on ------------------
   const benchMat = new THREE.MeshLambertMaterial({ color: 0x6e4f30 });
@@ -640,7 +874,7 @@ function buildCostaSerenaCity(scene) {
     const seat = new THREE.Mesh(propBox, benchMat); seat.scale.set(2.6, 0.16, 0.7); seat.position.y = 0.55; b.add(seat);
     const back = new THREE.Mesh(propBox, benchMat); back.scale.set(2.6, 0.7, 0.12); back.position.set(0, 0.95, -0.3); b.add(back);
     for (const sx of [-1.1, 1.1]) { const leg = new THREE.Mesh(propBox, lampMat); leg.scale.set(0.14, 0.55, 0.6); leg.position.set(sx, 0.27, 0); b.add(leg); }
-    b.position.set(x, 0, z); b.rotation.y = ry; b.traverse(function (o) { o.castShadow = true; });
+    b.position.set(x, groundHeightAt(x, z), z); b.rotation.y = ry; b.traverse(function (o) { o.castShadow = true; });
     scene.add(b);
   }
   function plantCrates(x, z) {
@@ -649,16 +883,16 @@ function buildCostaSerenaCity(scene) {
       const cr = new THREE.Mesh(propBox, crateMat);
       const s = 0.9 + rng() * 0.5;
       cr.scale.set(s, s, s);
-      cr.position.set(x + (rng() - 0.5) * 1.6, s / 2 + (i > 2 ? 0.95 : 0), z + (rng() - 0.5) * 1.6);
+      cr.position.set(x + (rng() - 0.5) * 1.6, s / 2 + (i > 2 ? 0.95 : 0) + groundHeightAt(x, z), z + (rng() - 0.5) * 1.6);
       cr.rotation.y = rng() * 0.8; cr.castShadow = true;
       scene.add(cr);
     }
   }
   function plantPlanter(x, z) {
     const pot = new THREE.Mesh(propBox, potMat);
-    pot.scale.set(1.5, 0.8, 1.5); pot.position.set(x, 0.4, z); pot.castShadow = true; scene.add(pot);
+    pot.scale.set(1.5, 0.8, 1.5); pot.position.set(x, 0.4 + groundHeightAt(x, z), z); pot.castShadow = true; scene.add(pot);
     const bush = new THREE.Mesh(new THREE.SphereGeometry(1.05, 7, 6), bushMat);
-    bush.position.set(x, 1.35, z); bush.scale.y = 0.8; bush.castShadow = true; scene.add(bush);
+    bush.position.set(x, 1.35 + groundHeightAt(x, z), z); bush.scale.y = 0.8; bush.castShadow = true; scene.add(bush);
   }
   function plantBusStop(x, z, ry) {
     const st = new THREE.Group();
@@ -668,7 +902,7 @@ function buildCostaSerenaCity(scene) {
     const bench = new THREE.Mesh(propBox, benchMat); bench.scale.set(4.2, 0.14, 0.55); bench.position.y = 0.6; st.add(bench);
     const sign = new THREE.Mesh(propBox, new THREE.MeshBasicMaterial({ color: 0x22d3ee }));
     sign.scale.set(0.9, 0.55, 0.08); sign.position.set(2.2, 2.1, 0.1); st.add(sign);
-    st.position.set(x, 0, z); st.rotation.y = ry; st.traverse(function (o) { o.castShadow = true; });
+    st.position.set(x, groundHeightAt(x, z), z); st.rotation.y = ry; st.traverse(function (o) { o.castShadow = true; });
     scene.add(st);
   }
   function plantFurniture(x, z, ry) {
@@ -709,6 +943,7 @@ function buildCostaSerenaCity(scene) {
     const canopy = new THREE.Mesh(propBox, new THREE.MeshLambertMaterial({ color: stallCols[Math.floor(rng() * 4)] }));
     canopy.scale.set(6.2, 0.12, 3.2); canopy.position.y = 3.05; canopy.rotation.z = 0.05; st.add(canopy);
     st.position.set(x + (rng() - 0.5) * 6, 0, -120 + (rng() < 0.5 ? -15 : 15));
+    st.position.y = groundHeightAt(st.position.x, st.position.z);
     st.traverse(function (o) { o.castShadow = true; });
     scene.add(st);
   }
@@ -807,7 +1042,7 @@ function buildCostaSerenaCity(scene) {
   // garage forecourt marker pad
   const pad = new THREE.Mesh(new THREE.PlaneGeometry(30, 22),
     new THREE.MeshBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.3 }));
-  pad.rotation.x = -Math.PI / 2; pad.position.set(CS.garage.x, 0.12, CS.garage.z);
+  pad.rotation.x = -Math.PI / 2; pad.position.set(CS.garage.x, PAVE_Y + 0.025, CS.garage.z);
   scene.add(pad);
 
   return { sun: sun, water: water };
@@ -832,6 +1067,9 @@ function setDaylight(day) {
     G.sunOffset = { x: -300, y: 340, z: 180 };
     G.sunBall.visible = false; G.sunGlow.visible = false;
     if (G.lampGlowMat) G.lampGlowMat.opacity = 0.1;
+    if (G.lampPoolMat) G.lampPoolMat.opacity = 0;
+    if (G.stringLightMat) G.stringLightMat.opacity = 0;
+    if (G.lampBulbMat) G.lampBulbMat.color.setHex(0xd9d2c2);
     if (G.facadeMats) for (const m of G.facadeMats) m.emissiveIntensity = 0.06;
     if (G.waterMesh) G.waterMesh.material.color.setHex(0x3d9bc4);
   } else {
@@ -844,6 +1082,9 @@ function setDaylight(day) {
     G.sunOffset = { x: -420, y: 128, z: 260 };
     G.sunBall.visible = true; G.sunGlow.visible = true;
     if (G.lampGlowMat) G.lampGlowMat.opacity = 0.85;
+    if (G.lampPoolMat) G.lampPoolMat.opacity = 0.42;
+    if (G.stringLightMat) G.stringLightMat.opacity = 0.95;
+    if (G.lampBulbMat) G.lampBulbMat.color.setHex(0xffe9bb);
     if (G.facadeMats) for (const m of G.facadeMats) m.emissiveIntensity = 0.34;
     if (G.waterMesh) G.waterMesh.material.color.setHex(0x2e7ea6);
   }

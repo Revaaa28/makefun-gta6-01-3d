@@ -61,7 +61,17 @@ function hidePalmsNear(x, z, r) {
     const palm = pc.g.parent;
     if (!palm) continue;
     const dx = palm.position.x - x, dz = palm.position.z - z;
-    if (dx * dx + dz * dz < r * r) palm.visible = false;
+    if (dx * dx + dz * dz < r * r) {
+      palm.visible = false;
+      // the palm's string lights live in one city-wide Points cloud, not in
+      // the palm group — sink this tree's bulbs below the world with it, or
+      // they would hang in the air where the trunk stood
+      if (pc.slStart !== undefined && G.stringGeo) {
+        const attr = G.stringGeo.attributes.position;
+        for (let i = pc.slStart; i < pc.slStart + pc.slCount; i++) attr.setY(i, -100);
+        attr.needsUpdate = true;
+      }
+    }
   }
 }
 
