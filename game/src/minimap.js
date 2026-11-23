@@ -20,16 +20,16 @@ function drawMinimap() {
   // --- terrain, from the world's own planes -----------------------------------
   // water first: the sea plane's near edge is the coastline
   const waterStartZ = W.waterZ - 20; // water plane: centre waterZ+190, 420 deep
-  g.fillStyle = '#274b63'; g.fillRect(0, 0, S, S);
+  g.fillStyle = '#2b6ea8'; g.fillRect(0, 0, S, S);
   // the city slab (ground plane spans x ±550, z -530..470; the sea covers it
   // from waterStartZ southward, so land is drawn only down to the waterline)
-  g.fillStyle = '#57493a';
+  g.fillStyle = '#7d6752';
   g.fillRect(wx(-550), wz(-530), 1100 * scale, (waterStartZ + 530) * scale);
   // the beach: the sand plane runs z beachZ-28..beachZ+92, visible until the sea
-  g.fillStyle = '#c9ae76';
+  g.fillStyle = '#dec188';
   g.fillRect(wx(-550), wz(W.beachZ - 28), 1100 * scale, (waterStartZ - (W.beachZ - 28)) * scale);
   // the marina docks: wooden fingers into the water, from CS.marina itself
-  g.fillStyle = '#7a6248';
+  g.fillStyle = '#96795a';
   for (let i = 0; i < CS.marina.dockCount; i++) {
     const dx = CS.marina.dockX0 + i * CS.marina.dockStep;
     const dz = W.waterZ + CS.marina.dockZOff;
@@ -42,7 +42,7 @@ function drawMinimap() {
   // small, with a soft dark halo, the player's own district first — and any
   // label that would collide with one already drawn is skipped, not stacked.
   for (const d of CS.districts) {
-    g.fillStyle = d.tint + '4D';
+    g.fillStyle = d.tint + '59';
     g.fillRect(wx(d.x0), wz(d.z0), (d.x1 - d.x0) * scale, (d.z1 - d.z0) * scale);
   }
   g.font = '700 11px Rubik, Verdana, sans-serif'; g.textAlign = 'center';
@@ -72,10 +72,10 @@ function drawMinimap() {
   // road planes: avenuesX strips run z -460..420, avenuesZ strips run
   // x -470..470, each roadWidth wide over a roadWidth+7 sidewalk bed
   const rw = W.roadWidth;
-  g.fillStyle = '#8a7c64';
+  g.fillStyle = '#a08e6f';
   for (const ax of CS.avenuesX) g.fillRect(wx(ax - (rw + 7) / 2), wz(-460), (rw + 7) * scale, 880 * scale);
   for (const az of CS.avenuesZ) g.fillRect(wx(-470), wz(az - (rw + 7) / 2), 940 * scale, (rw + 7) * scale);
-  g.fillStyle = '#43484f';
+  g.fillStyle = '#4c525b';
   for (const ax of CS.avenuesX) g.fillRect(wx(ax - rw / 2), wz(-460), rw * scale, 880 * scale);
   for (const az of CS.avenuesZ) g.fillRect(wx(-470), wz(az - rw / 2), 940 * scale, rw * scale);
   // centre dashes, like the merged yellow dashes on the real avenues
@@ -97,14 +97,22 @@ function drawMinimap() {
     const snap = function (v, arr) { let b = arr[0]; for (const a of arr) if (Math.abs(a - v) < Math.abs(b - v)) b = a; return b; };
     const sx = snap(px, CS.avenuesX), sz = snap(pz, CS.avenuesZ);
     const tx = snap(target.x, CS.avenuesX), tz = snap(target.z, CS.avenuesZ);
+    // a dark casing under the yellow, so the route stays readable over the
+    // brightened land at thumbnail size
+    const traceRoute = function () {
+      g.beginPath();
+      g.moveTo(wx(px), wz(pz));
+      g.lineTo(wx(sx), wz(sz));
+      g.lineTo(wx(tx), wz(sz));
+      g.lineTo(wx(tx), wz(tz));
+      g.lineTo(wx(target.x), wz(target.z));
+      g.stroke();
+    };
+    g.strokeStyle = 'rgba(24,18,6,0.65)'; g.lineWidth = 7.5; g.setLineDash([9, 6]);
+    traceRoute();
     g.strokeStyle = '#ffd23d'; g.lineWidth = 4; g.setLineDash([9, 6]);
-    g.beginPath();
-    g.moveTo(wx(px), wz(pz));
-    g.lineTo(wx(sx), wz(sz));
-    g.lineTo(wx(tx), wz(sz));
-    g.lineTo(wx(tx), wz(tz));
-    g.lineTo(wx(target.x), wz(target.z));
-    g.stroke(); g.setLineDash([]);
+    traceRoute();
+    g.setLineDash([]);
     // objective diamond
     g.fillStyle = '#ffd23d';
     g.save(); g.translate(wx(target.x), wz(target.z)); g.rotate(Math.PI / 4); g.fillRect(-7, -7, 14, 14); g.restore();
@@ -159,6 +167,6 @@ function drawMinimap() {
   // rim shading
   const grad = g.createRadialGradient(C, C, S * 0.32, C, C, S * 0.5);
   grad.addColorStop(0, 'rgba(0,0,0,0)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.35)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.2)');
   g.fillStyle = grad; g.fillRect(0, 0, S, S);
 }

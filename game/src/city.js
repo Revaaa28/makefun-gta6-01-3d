@@ -280,10 +280,10 @@ function makePalmTree(rng) {
   const greens = [0x3e8a4f, 0x4da35e, 0x35794a];
   const parts = [];
   const rings = [
-    { n: 3, tilt: 0.38, len: 3.4 },  // upright spears
-    { n: 6, tilt: 0.85, len: 5.4 },  // the main fan
-    { n: 5, tilt: 1.3, len: 4.7 },   // the drooping lower ring
-    { n: 3, tilt: 2.15, len: 3.1 }   // dry hangers underneath
+    { n: 4, tilt: 0.38, len: 3.6 },  // upright spears
+    { n: 8, tilt: 0.85, len: 5.9 },  // the main fan
+    { n: 7, tilt: 1.42, len: 5.1 },  // the drooping lower ring
+    { n: 4, tilt: 2.15, len: 3.2 }   // dry hangers underneath
   ];
   const qY = new THREE.Quaternion(), qZ = new THREE.Quaternion();
   const YAXIS = new THREE.Vector3(0, 1, 0), ZAXIS = new THREE.Vector3(0, 0, 1);
@@ -299,7 +299,7 @@ function makePalmTree(rng) {
       qZ.setFromAxisAngle(ZAXIS, -ring.tilt);
       const q = qY.clone().multiply(qZ);
       const m = new THREE.Matrix4().compose(
-        new THREE.Vector3(0, -0.05, 0), q, new THREE.Vector3(1, len, 0.22));
+        new THREE.Vector3(0, -0.05, 0), q, new THREE.Vector3(1, len, 0.27));
       parts.push({ geo: PALM_FROND_BASE, mtx: m, color: dry ? 0x9a8a4a : greens[Math.floor(rng() * greens.length)] });
     }
   }

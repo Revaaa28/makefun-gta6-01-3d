@@ -51,8 +51,12 @@ function buildSerenaGT(car, bodyMat, glassMat, trimMat) {
     const strut = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.42, 0.3), trimMat);
     strut.position.set(sx, 1.12, -2.28); car.add(strut);
   }
-  const wing = new THREE.Mesh(new THREE.BoxGeometry(2.34, 0.1, 0.52), trimMat);
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(2.34, 0.1, 0.52), bodyMat);
   wing.position.set(0, 1.36, -2.3); wing.rotation.x = 0.1; car.add(wing);
+  for (const sx of [-1.14, 1.14]) { // wing endplates, so the spoiler reads as one
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.26, 0.56), trimMat);
+    plate.position.set(sx, 1.38, -2.3); car.add(plate);
+  }
   const pipeMat = new THREE.MeshLambertMaterial({ color: 0x8f979e });
   for (const sx of [-0.52, 0.52]) { // twin exhausts
     const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.34, 8), pipeMat);
@@ -69,7 +73,7 @@ function makeCarMesh(paint, kind) {
   // halos — at dusk a car is mostly its lights and its outline, so both are here
   const car = new THREE.Group();
   const bodyMat = new THREE.MeshLambertMaterial({ color: paint });
-  const glassMat = new THREE.MeshLambertMaterial({ color: 0x182635 });
+  const glassMat = new THREE.MeshLambertMaterial({ color: 0x0d1622 });
   const trimMat = new THREE.MeshLambertMaterial({ color: 0x22242a });
   if (kind === 'gt') {
     buildSerenaGT(car, bodyMat, glassMat, trimMat);
@@ -120,6 +124,10 @@ function makeCarMesh(paint, kind) {
       new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
     bar.position.set(0, 1.66, -0.25); bar.name = 'lightbar';
     car.add(bar);
+    // the bar reads emissive, not painted: a red bloom on the left half and a
+    // blue one on the right, the two colours every patrol lightbar throws
+    addLightGlow(car, -0.4, 1.88, -0.25, 0xff5040, 1.15);
+    addLightGlow(car, 0.4, 1.88, -0.25, 0x4da3ff, 1.15);
     // black-and-white livery: dark band around the waist, dark bonnet and boot
     const band = new THREE.Mesh(new THREE.BoxGeometry(2.14, 0.34, 4.54),
       new THREE.MeshLambertMaterial({ color: 0x14181f }));
