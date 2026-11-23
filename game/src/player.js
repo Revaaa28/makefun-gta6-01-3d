@@ -3,52 +3,75 @@
 // any traffic car, patrol car or the Serena GT into the player's ride.
 
 function makePlayerMesh() {
-  // the protagonist reads from behind, over the shoulder, in almost every frame
-  // the player ever sees — so he is built for that angle: sunset-orange jacket
-  // with a white chest stripe, a teal backpack, navy cap, white sneakers
+  // the protagonist is NADIA — the voice in the dialogue strip and the first
+  // crew card — and she reads from behind, over the shoulder, in almost every
+  // frame the player ever sees, so she is built for that angle: long dark hair
+  // in a high ponytail over a teal backpack, a sunset-orange crop top with a
+  // white chest stripe, bare arms and legs, teal shorts, white sneakers. Her
+  // silhouette is deliberately slimmer-waisted and narrower-shouldered than
+  // the pedestrian models so she never reads as one of the crowd — or as a man.
   const p = new THREE.Group();
-  const jacket = new THREE.MeshLambertMaterial({ color: 0xff7a2e });
+  const top = new THREE.MeshLambertMaterial({ color: 0xff7a2e });
   const skin = new THREE.MeshLambertMaterial({ color: 0xc98d5f });
-  const denim = new THREE.MeshLambertMaterial({ color: 0x2e4a7a });
-  const navy = new THREE.MeshLambertMaterial({ color: 0x14213d });
-  const chest = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.48, 0.38), jacket);
-  chest.position.y = 1.3; chest.castShadow = true; p.add(chest);
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.4),
+  const teal = new THREE.MeshLambertMaterial({ color: 0x0f766e });
+  const hairMat = new THREE.MeshLambertMaterial({ color: 0x2a1a12 });
+  // torso: narrow shoulders, a skin midriff under the crop top, teal shorts
+  const chest = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.46, 0.34), top);
+  chest.position.y = 1.31; chest.castShadow = true; p.add(chest);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.1, 0.36),
     new THREE.MeshLambertMaterial({ color: 0xf5f2ea }));
-  stripe.position.y = 1.38; p.add(stripe);
-  const hips = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.34, 0.34), denim);
-  hips.position.y = 0.92; p.add(hips);
-  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.62, 0.24),
-    new THREE.MeshLambertMaterial({ color: 0x0f766e }));
-  pack.position.set(0, 1.28, -0.32); pack.castShadow = true; p.add(pack);
-  const packFlap = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.2, 0.26),
+  stripe.position.y = 1.4; p.add(stripe);
+  const waist = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.16, 0.29), skin);
+  waist.position.y = 1.02; p.add(waist);
+  const hips = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.3, 0.32), teal);
+  hips.position.y = 0.86; p.add(hips);
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.58, 0.22), teal);
+  pack.position.set(0, 1.3, -0.3); pack.castShadow = true; p.add(pack);
+  const packFlap = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.18, 0.24),
     new THREE.MeshLambertMaterial({ color: 0xf2b13d }));
-  packFlap.position.set(0, 1.52, -0.32); p.add(packFlap);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.42, 0.38), skin);
+  packFlap.position.set(0, 1.52, -0.3); p.add(packFlap);
+  // head and hair: full dark hair — crown, side panels, a back fall to the
+  // shoulders, a fringe, and the ponytail hanging behind the backpack
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.42, 0.36), skin);
   head.position.y = 1.76; head.castShadow = true; p.add(head);
-  const hair = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.1),
-    new THREE.MeshLambertMaterial({ color: 0x1c1410 }));
-  hair.position.set(0, 1.8, -0.16); p.add(hair);
-  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.12, 0.44), navy);
-  cap.position.y = 2.0; p.add(cap);
-  const brim = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.05, 0.3), navy);
-  brim.position.set(0, 1.95, 0.32); p.add(brim);
-  const legGeo = new THREE.BoxGeometry(0.22, 0.7, 0.26);
-  const legL = new THREE.Mesh(legGeo, denim);
-  legL.position.set(-0.17, 0.36, 0); p.add(legL);
-  const legR = new THREE.Mesh(legGeo, denim); legR.position.x = 0.17; legR.position.y = 0.36; p.add(legR);
+  const crown = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.18, 0.42), hairMat);
+  crown.position.y = 1.95; crown.castShadow = true; p.add(crown);
+  const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.13, 0.07), hairMat);
+  fringe.position.set(0, 1.9, 0.17); p.add(fringe);
+  for (const sx of [-1, 1]) {
+    const side = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.44, 0.38), hairMat);
+    side.position.set(sx * 0.19, 1.73, 0); p.add(side);
+  }
+  const backFall = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.08), hairMat);
+  backFall.position.set(0, 1.7, -0.18); p.add(backFall);
+  const tie = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.09, 0.2),
+    new THREE.MeshLambertMaterial({ color: 0xf2b13d }));
+  tie.position.set(0, 1.94, -0.25); p.add(tie);
+  const pony = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.66, 0.15), hairMat);
+  pony.position.set(0, 1.58, -0.52); pony.rotation.x = 0.35; pony.castShadow = true; p.add(pony);
+  const shades = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.07, 0.04),
+    new THREE.MeshLambertMaterial({ color: 0x14161c }));
+  shades.position.set(0, 1.78, 0.19); p.add(shades);
+  // bare legs under the shorts, slimmer and closer-set than a pedestrian's
+  const legGeo = new THREE.BoxGeometry(0.16, 0.72, 0.2);
+  const legL = new THREE.Mesh(legGeo, skin);
+  legL.position.set(-0.13, 0.36, 0); p.add(legL);
+  const legR = new THREE.Mesh(legGeo, skin); legR.position.x = 0.13; legR.position.y = 0.36; p.add(legR);
   for (const leg of [legL, legR]) {
-    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.11, 0.38),
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.11, 0.36),
       new THREE.MeshLambertMaterial({ color: 0xf5f2ea }));
     shoe.position.set(0, -0.33, 0.05); leg.add(shoe);
   }
-  const armGeo = new THREE.BoxGeometry(0.17, 0.64, 0.21);
-  const armL = new THREE.Mesh(armGeo, jacket);
-  armL.position.set(-0.43, 1.14, 0); p.add(armL);
-  const armR = new THREE.Mesh(armGeo, jacket); armR.position.x = 0.43; armR.position.y = 1.14; p.add(armR);
+  // slim bare arms with orange shoulder caps where the top's sleeves end
+  const armGeo = new THREE.BoxGeometry(0.13, 0.62, 0.17);
+  const armL = new THREE.Mesh(armGeo, skin);
+  armL.position.set(-0.35, 1.12, 0); p.add(armL);
+  const armR = new THREE.Mesh(armGeo, skin); armR.position.x = 0.35; armR.position.y = 1.12; p.add(armR);
   for (const arm of [armL, armR]) {
-    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.17, 0.19), skin);
-    hand.position.set(0, -0.37, 0); arm.add(hand);
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.16, 0.16), skin);
+    hand.position.set(0, -0.36, 0); arm.add(hand);
+    const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.2, 0.21), top);
+    sleeve.position.set(0, 0.24, 0); arm.add(sleeve);
   }
   p.userData = { legL: legL, legR: legR, armL: armL, armR: armR };
   return p;
