@@ -94,6 +94,8 @@ function startMission(def) {
   G.mission = { def: def, step: 0, collected: 0, timer: null, holdFor: 0, startedAt: G.time };
   setupObjective();
   showToast('MISSION STARTED — ' + def.name, 3);
+  const dlg = dialogueFromLine(def.line);
+  showDialogueStrip(dlg.speaker, dlg.text, 6);
   playSfx('mission');
 }
 

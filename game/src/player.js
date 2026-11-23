@@ -190,9 +190,11 @@ function updateChaseCamera(dt, target, yaw, dist, height) {
   cam.position.y += (cy - cam.position.y) * k;
   cam.position.z += (cz - cam.position.z) * k;
   cam.lookAt(target.x, 1.6, target.z);
-  // keep the sun's shadow frustum centred near the action
+  // keep the sun's shadow frustum centred near the action; the offset itself
+  // belongs to the light of the hour (city.js setDaylight swaps it)
   if (G.sunLight) {
-    G.sunLight.position.set(target.x - 420, 128, target.z + 260);
+    const so = G.sunOffset || { x: -420, y: 128, z: 260 };
+    G.sunLight.position.set(target.x + so.x, so.y, target.z + so.z);
     G.sunLight.target.position.set(target.x, 0, target.z);
   }
 }

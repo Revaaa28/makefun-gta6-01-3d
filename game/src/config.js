@@ -21,6 +21,9 @@ function costaSerenaConfig() {
     ],
     garage: { x: 24, z: 132, name: 'Taller Brisa' },
     hospital: { x: -96, z: 96 },
+    // the marina's dock layout lives here so the city builder AND the minimap
+    // draw the same fingers of wood into the same water
+    marina: { dockX0: 268, dockStep: 44, dockCount: 4, dockW: 7, dockL: 74, dockZOff: 26 },
     policeUnits: ['VIPER-2', 'ORCA-5', 'JAGUAR-3', 'COBRA-4', 'MANTA-6', 'SIROCO-7', 'PIQUERO-8'],
     helicopter: { name: 'FALCON-1', height: 46 },
     weapons: [
@@ -55,7 +58,9 @@ var G = {
   radioIndex: 0, radioOn: false, kills: 0, carsStolen: 0,
   player: null, camera: null, scene3: null, renderer: null,
   traffic: [], peds: [], police: [], officers: [], bullets: [], markers: [],
-  colliders: [], unitSeq: 0, message: '', messageUntil: 0
+  colliders: [], unitSeq: 0, message: '', messageUntil: 0,
+  crewReadyAt: { swap: 0, fix: 0, eyes: 0 }, eyesOutUntil: 0,
+  dialogue: null, daylight: false, sunOffset: { x: -420, y: 128, z: 260 }
 };
 
 // Deterministic RNG (mulberry32) so the city — and the staged screenshot scenes —

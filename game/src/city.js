@@ -111,6 +111,33 @@ function makeSkyTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+function makeDaySkyTexture() {
+  // the same dome on a bright day: deep blue up top melting to a pale horizon,
+  // with soft cloud banks painted in — the cover shot's sky. The clouds are
+  // wide blurred ellipses so the sphere wrap stretches them, never tears them
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 512;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 512, 0, 0);
+  grad.addColorStop(0.0, '#dcefff');
+  grad.addColorStop(0.34, '#a8d4f5');
+  grad.addColorStop(0.62, '#6fb2ec');
+  grad.addColorStop(1.0, '#2e6fd2');
+  g.fillStyle = grad; g.fillRect(0, 0, 1024, 512);
+  const rng = seededRandom(1234);
+  for (let i = 0; i < 46; i++) {
+    const cx = rng() * 1024, cy = 60 + rng() * 250, r = 30 + rng() * 90;
+    const cg = g.createRadialGradient(cx, cy, 2, cx, cy, r);
+    cg.addColorStop(0, 'rgba(255,255,255,0.55)');
+    cg.addColorStop(0.6, 'rgba(255,255,255,0.22)');
+    cg.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = cg;
+    g.beginPath(); g.ellipse(cx, cy, r * 1.9, r * 0.5, 0, 0, 6.3); g.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  return tex;
+}
+
 function makeStripeTexture() {
   const c = document.createElement('canvas'); c.width = 128; c.height = 32;
   const g = c.getContext('2d');
@@ -169,10 +196,14 @@ function buildCostaSerenaCity(scene) {
     new THREE.MeshBasicMaterial({ map: makeSkyTexture(), side: THREE.BackSide, fog: false, depthWrite: false }));
   skyDome.renderOrder = -10;
   scene.add(skyDome);
+  G.skyDome = skyDome;
+  G.duskSkyTexture = skyDome.material.map;
+  G.daySkyTexture = makeDaySkyTexture();
   scene.background = new THREE.Color(0xf2665e);
   scene.fog = new THREE.Fog(0xef8a5c, 130, 760);
   const hemi = new THREE.HemisphereLight(0xffc9a0, 0x51384e, 0.8);
   scene.add(hemi);
+  G.hemiLight = hemi;
   const sun = new THREE.DirectionalLight(0xffa257, 1.4);
   sun.position.set(-420, 128, 260);
   sun.castShadow = true;
@@ -195,6 +226,8 @@ function buildCostaSerenaCity(scene) {
   sunGlow.scale.set(420, 420, 1);
   sunGlow.position.copy(sunBall.position);
   scene.add(sunGlow);
+  G.sunBall = sunBall;
+  G.sunGlow = sunGlow;
   G.glowTexture = makeGlowTexture('rgba(255,225,160,1)', 'rgba(255,170,80,0.45)');
 
   // --- ground: city slab, sand, animated water ---------------------------------
@@ -292,6 +325,7 @@ function buildCostaSerenaCity(scene) {
       const bh = tall ? 30 + rng() * 42 : 13 + rng() * 26;
       const tex = inNeon ? neonFacades[Math.floor(rng() * 3)] : facades[Math.floor(rng() * facades.length)];
       const mat = new THREE.MeshLambertMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.34 });
+      (G.facadeMats = G.facadeMats || []).push(mat);
       // facade on all four walls, roof material only on the up/down faces
       const b = new THREE.Mesh(boxGeo, [mat, mat, roofMat, roofMat, mat, mat]);
       b.scale.set(bw, bh, bd);
@@ -370,6 +404,7 @@ function buildCostaSerenaCity(scene) {
   const lampGeo = new THREE.CylinderGeometry(0.14, 0.18, 6.4, 5);
   const bulbGeo = new THREE.SphereGeometry(0.42, 8, 6);
   const lampGlowMat = new THREE.SpriteMaterial({ map: G.glowTexture, color: 0xffc98a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 });
+  G.lampGlowMat = lampGlowMat;
   function plantLamp(x, z) {
     const lamp = new THREE.Mesh(lampGeo, lampMat);
     lamp.position.set(x, 3.2, z); scene.add(lamp);
@@ -509,10 +544,10 @@ function buildCostaSerenaCity(scene) {
   // --- marina: docks, boats, the harbour crane ---------------------------------------
   const dockMat = new THREE.MeshLambertMaterial({ color: 0x7a6248 });
   const hullCols = [0xd94f3d, 0x3d7ad9, 0xf2f0e6, 0x3dd9a4, 0xf2b13d];
-  for (let i = 0; i < 4; i++) {
-    const dx = 268 + i * 44;
-    const dock = new THREE.Mesh(new THREE.BoxGeometry(7, 1, 74), dockMat);
-    dock.position.set(dx, 0.6, W.waterZ + 26);
+  for (let i = 0; i < CS.marina.dockCount; i++) {
+    const dx = CS.marina.dockX0 + i * CS.marina.dockStep;
+    const dock = new THREE.Mesh(new THREE.BoxGeometry(CS.marina.dockW, 1, CS.marina.dockL), dockMat);
+    dock.position.set(dx, 0.6, W.waterZ + CS.marina.dockZOff);
     scene.add(dock);
     G.colliders.push({ x0: dx - 3.5, x1: dx + 3.5, z0: W.waterZ - 8, z1: W.waterZ + 60 });
     for (let bIdx = 0; bIdx < 3; bIdx++) {
@@ -545,6 +580,43 @@ function buildCostaSerenaCity(scene) {
   scene.add(pad);
 
   return { sun: sun, water: water };
+}
+
+function setDaylight(day) {
+  // one city, two lights. The golden hour is the game's home mood; daylight is
+  // the bright blue morning the cover shot is staged under. Everything swapped
+  // here is a handle the builder kept: the dome's texture, the fog, the sun's
+  // offset (player.js re-aims it every frame), the lamps' shared glow material
+  // and every facade's emissive lift — windows glow at dusk, go quiet at noon.
+  G.daylight = !!day;
+  const scene = G.scene3;
+  if (!scene || !G.skyDome) return;
+  if (day) {
+    G.skyDome.material.map = G.daySkyTexture;
+    scene.background = new THREE.Color(0x7ec3ee);
+    scene.fog.color.setHex(0xc4e2f4);
+    scene.fog.near = 220; scene.fog.far = 1150;
+    G.hemiLight.color.setHex(0xbfdcff); G.hemiLight.groundColor.setHex(0x8a7a5e); G.hemiLight.intensity = 1.05;
+    G.sunLight.color.setHex(0xfff3d6); G.sunLight.intensity = 1.55;
+    G.sunOffset = { x: -300, y: 340, z: 180 };
+    G.sunBall.visible = false; G.sunGlow.visible = false;
+    if (G.lampGlowMat) G.lampGlowMat.opacity = 0.1;
+    if (G.facadeMats) for (const m of G.facadeMats) m.emissiveIntensity = 0.06;
+    if (G.waterMesh) G.waterMesh.material.color.setHex(0x3d9bc4);
+  } else {
+    G.skyDome.material.map = G.duskSkyTexture;
+    scene.background = new THREE.Color(0xf2665e);
+    scene.fog.color.setHex(0xef8a5c);
+    scene.fog.near = 130; scene.fog.far = 760;
+    G.hemiLight.color.setHex(0xffc9a0); G.hemiLight.groundColor.setHex(0x51384e); G.hemiLight.intensity = 0.8;
+    G.sunLight.color.setHex(0xffa257); G.sunLight.intensity = 1.4;
+    G.sunOffset = { x: -420, y: 128, z: 260 };
+    G.sunBall.visible = true; G.sunGlow.visible = true;
+    if (G.lampGlowMat) G.lampGlowMat.opacity = 0.85;
+    if (G.facadeMats) for (const m of G.facadeMats) m.emissiveIntensity = 0.34;
+    if (G.waterMesh) G.waterMesh.material.color.setHex(0x2e7ea6);
+  }
+  G.skyDome.material.needsUpdate = true;
 }
 
 function collideCircle(pos, radius) {

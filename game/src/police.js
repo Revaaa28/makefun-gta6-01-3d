@@ -13,6 +13,25 @@ function commitCrime(amount) {
 
 function wantedStars() { return G.heat <= 0 ? 0 : Math.ceil(G.heat / 100); }
 
+function unitRole(unit) {
+  // what a unit is DOING, read off its live behaviour — the RESPONSE panel
+  // prints this, so it is derived, never scripted: a parked car is holding a
+  // roadblock, a unit ahead of the player's heading is running to cut them
+  // off (flanking), a unit on the bumper at speed is ramming, the rest pursue
+  const car = unit.car;
+  if (car.dead) return 'DISABLED';
+  if (car.parked) return 'ROADBLOCK';
+  const px = G.player.pos.x, pz = G.player.pos.z;
+  const dx = car.pos.x - px, dz = car.pos.z - pz;
+  const d = Math.sqrt(dx * dx + dz * dz);
+  const heading = G.inCar ? G.inCar.angle : G.player.angle;
+  const fx = Math.sin(heading), fz = Math.cos(heading);
+  const ahead = d > 0.01 ? (dx * fx + dz * fz) / d : 0;
+  if (ahead > 0.45 && d > 10) return 'FLANKING';
+  if (d < 13 && Math.abs(car.speed) > 5) return 'RAMMING';
+  return 'PURSUIT';
+}
+
 function makeOfficerMesh() {
   const o = new THREE.Group();
   const uniform = new THREE.MeshLambertMaterial({ color: 0x1d3557 });

@@ -27,9 +27,12 @@ function bootCostaSerena() {
   spawnPlayer(scene, 6, 268);
   buildTraffic(scene);
   buildPedestrians(scene);
+  buildCrewCards();
+  updateWeaponSlots();
   bindPlayerInput(canvas);
   bindCombatInput();
   bindGarageInput();
+  bindCrewInput();
 
   const save = loadSaveData();
   if (save) document.getElementById('continue-btn').style.display = 'inline-block';
