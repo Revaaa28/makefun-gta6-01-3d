@@ -31,8 +31,14 @@ function drawMinimap() {
   for (const az of CS.avenuesZ) { g.beginPath(); g.moveTo(wx(-450), wz(az)); g.lineTo(wx(450), wz(az)); g.stroke(); }
 
   const px = G.player.pos.x, pz = G.player.pos.z;
-  // route: snap the player and the objective to the avenue grid, run the avenues
-  const target = currentObjectiveTarget ? currentObjectiveTarget() : null;
+  // route: snap the player and the objective to the avenue grid, run the avenues.
+  // With no job active the route runs to the next giver instead — a minimap with
+  // a route on it reads as a game being played, not a map being shown
+  let target = currentObjectiveTarget ? currentObjectiveTarget() : null;
+  if (!target && typeof nextMissionDef === 'function') {
+    const nextDef = nextMissionDef();
+    if (nextDef) target = nextDef.giver;
+  }
   if (target) {
     const snap = function (v, arr) { let b = arr[0]; for (const a of arr) if (Math.abs(a - v) < Math.abs(b - v)) b = a; return b; };
     const sx = snap(px, CS.avenuesX), sz = snap(pz, CS.avenuesZ);

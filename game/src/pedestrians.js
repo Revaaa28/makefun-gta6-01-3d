@@ -6,21 +6,56 @@
 const PED_SHIRTS = [0xff8a5c, 0x5cc8ff, 0xffe066, 0xff5c8a, 0x7dff8a, 0xf2f0e6, 0xc792ff, 0x5cffd4];
 const PED_SKIN = [0xf2c49b, 0xc98d5f, 0x8a5a33, 0x6e4226, 0xffdbb4];
 
+const PED_HAIR = [0x1c1410, 0x3a2417, 0x6e4a26, 0xb08954, 0xd9d3c8, 0x8a2f2a];
+
 function makePedestrianMesh(rng) {
+  // a person, not a mannequin: chest and hips as two boxes so the silhouette has
+  // a waist, hair (or a cap) on the head, a shades strip so the face has a front,
+  // skin hands at the ends of the swinging arms, shoes on the swinging legs
   const ped = new THREE.Group();
   const shirt = new THREE.MeshLambertMaterial({ color: PED_SHIRTS[Math.floor(rng() * PED_SHIRTS.length)] });
   const skin = new THREE.MeshLambertMaterial({ color: PED_SKIN[Math.floor(rng() * PED_SKIN.length)] });
   const legs = new THREE.MeshLambertMaterial({ color: [0x33415c, 0x5c4333, 0xe8e4da, 0x333333][Math.floor(rng() * 4)] });
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.78, 0.34), shirt);
-  torso.position.y = 1.08; torso.castShadow = true; ped.add(torso);
+  const hairMat = new THREE.MeshLambertMaterial({ color: PED_HAIR[Math.floor(rng() * PED_HAIR.length)] });
+  const chest = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.46, 0.36), shirt);
+  chest.position.y = 1.28; chest.castShadow = true; ped.add(chest);
+  const hips = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.34, 0.32), legs);
+  hips.position.y = 0.9; ped.add(hips);
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.4, 0.36), skin);
-  head.position.y = 1.68; ped.add(head);
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.68, 0.24), legs);
+  head.position.y = 1.72; head.castShadow = true; ped.add(head);
+  if (rng() < 0.3) { // a cap instead of hair, brim forward
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.42), new THREE.MeshLambertMaterial({ color: PED_SHIRTS[Math.floor(rng() * PED_SHIRTS.length)] }));
+    cap.position.y = 1.95; ped.add(cap);
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.05, 0.26), cap.material);
+    brim.position.set(0, 1.9, 0.3); ped.add(brim);
+  } else {
+    const hair = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.16, 0.4), hairMat);
+    hair.position.y = 1.92; ped.add(hair);
+    const hairBack = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.1), hairMat);
+    hairBack.position.set(0, 1.78, -0.15); ped.add(hairBack);
+  }
+  const shades = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.07, 0.04),
+    new THREE.MeshLambertMaterial({ color: 0x14161c }));
+  shades.position.set(0, 1.76, 0.19); ped.add(shades);
+  const legGeo = new THREE.BoxGeometry(0.2, 0.68, 0.24);
+  const legL = new THREE.Mesh(legGeo, legs);
+  legL.geometry.translate(0, 0, 0);
   legL.position.set(-0.16, 0.35, 0); ped.add(legL);
-  const legR = legL.clone(); legR.position.x = 0.16; ped.add(legR);
-  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.62, 0.2), shirt);
-  armL.position.set(-0.4, 1.1, 0); ped.add(armL);
-  const armR = armL.clone(); armR.position.x = 0.4; ped.add(armR);
+  const legR = new THREE.Mesh(legGeo, legs); legR.position.x = 0.16; legR.position.y = 0.35; ped.add(legR);
+  for (const [leg, sx] of [[legL, -0.16], [legR, 0.16]]) {
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.1, 0.36),
+      new THREE.MeshLambertMaterial({ color: 0xf0ede6 }));
+    shoe.position.set(0, -0.32, 0.05); leg.add(shoe);
+    void sx;
+  }
+  const armGeo = new THREE.BoxGeometry(0.16, 0.62, 0.2);
+  const armL = new THREE.Mesh(armGeo, shirt);
+  armL.position.set(-0.41, 1.12, 0); ped.add(armL);
+  const armR = new THREE.Mesh(armGeo, shirt); armR.position.x = 0.41; armR.position.y = 1.12; ped.add(armR);
+  for (const arm of [armL, armR]) {
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.16, 0.18), skin);
+    hand.position.set(0, -0.36, 0); arm.add(hand);
+  }
   ped.userData = { legL: legL, legR: legR, armL: armL, armR: armR };
   return ped;
 }

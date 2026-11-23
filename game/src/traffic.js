@@ -18,8 +18,9 @@ function spawnTrafficCar(scene, rng) {
   const z = axis === 'x' ? fixed + off : (along > 370 ? 300 : along);
   const angle = axis === 'x' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
   const paint = CAR_PAINTS[Math.floor(rng() * CAR_PAINTS.length)];
-  const kind = rng() < 0.14 ? 'pickup' : 'car';
-  const car = spawnCar(scene, x, z, angle, paint, kind);
+  const kindRoll = rng();
+  const kind = kindRoll < 0.13 ? 'pickup' : (kindRoll < 0.25 ? 'van' : (kindRoll < 0.37 ? 'taxi' : 'car'));
+  const car = spawnCar(scene, x, z, angle, kind === 'taxi' ? 0xf7c948 : paint, kind);
   car.traffic = { axis: axis, dir: dir, fixed: fixed, cruise: 11 + rng() * 7, turnCooldown: 0 };
   return car;
 }

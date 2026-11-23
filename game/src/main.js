@@ -76,6 +76,10 @@ function gameLoop(nowMs) {
       posAttr.setZ(i, Math.sin(G.time * 1.3 + i * 0.7) * 0.22);
     }
     posAttr.needsUpdate = true;
+    if (G.foamMesh) { // the foam line breathes against the sand
+      G.foamMesh.material.opacity = 0.36 + Math.sin(G.time * 0.9) * 0.16;
+      G.foamMesh.position.z = CS.world.waterZ - 3 + Math.sin(G.time * 0.55) * 1.1;
+    }
     if (G.boats) for (let i = 0; i < G.boats.length; i++) {
       G.boats[i].position.y = 0.5 + Math.sin(G.time * 1.1 + i * 1.7) * 0.14;
       G.boats[i].rotation.z = Math.sin(G.time * 0.9 + i) * 0.02;
@@ -83,10 +87,13 @@ function gameLoop(nowMs) {
   }
 
   if (G.scene) {
-    // staged screenshot: hold the pose, let peds stroll and the light sit still
+    // staged screenshot: hold the pose, let peds stroll and the light sit still.
+    // scenes.js may set G.sceneCam {dist, height} to compose its frame; the
+    // defaults are the old framing
+    const sc = G.sceneCam || {};
     updatePedestrians(dt * 0.4);
-    if (G.inCar) updateChaseCamera(dt, G.inCar.pos, G.inCar.angle, 12, 2.4);
-    else if (G.player) updateChaseCamera(dt, G.player.pos, G.player.camYaw, 8.5, 2.4 + G.player.camPitch * 4.2);
+    if (G.inCar) updateChaseCamera(dt, G.inCar.pos, G.inCar.angle, sc.dist || 12, sc.height != null ? sc.height : 2.4);
+    else if (G.player) updateChaseCamera(dt, G.player.pos, G.player.camYaw, sc.dist || 8.5, sc.height != null ? sc.height : 2.4 + G.player.camPitch * 4.2);
     if (G.helicopter) G.helicopter.rotor.rotation.y += dt * 26;
     updateHud();
     G.renderer.render(G.scene3, G.camera);

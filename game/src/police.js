@@ -24,8 +24,13 @@ function makeOfficerMesh() {
   vest.position.y = 1.2; o.add(vest);
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.37, 0.41, 0.37), skin);
   head.position.y = 1.7; o.add(head);
+  const shades = new THREE.Mesh(new THREE.BoxGeometry(0.31, 0.07, 0.04),
+    new THREE.MeshLambertMaterial({ color: 0x0c0e12 }));
+  shades.position.set(0, 1.74, 0.19); o.add(shades);
   const cap = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.12, 0.44), uniform);
   cap.position.y = 1.96; o.add(cap);
+  const capBrim = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.26), uniform);
+  capBrim.position.set(0, 1.91, 0.3); o.add(capBrim);
   const legL = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.7, 0.25), uniform);
   legL.position.set(-0.16, 0.36, 0); o.add(legL);
   const legR = legL.clone(); legR.position.x = 0.16; o.add(legR);
@@ -45,54 +50,151 @@ function spawnPoliceCar(scene, x, z) {
 }
 
 function spawnRoadblock(scene, bx, bz, angle) {
-  const group = { units: [], barrier: null };
-  for (const side of [-3.4, 3.4]) {
+  // a roadblock that reads at a glance: two interceptors angled nose-in, a
+  // red-white striped barrier on trestle legs between them, a spike strip in
+  // front of it and a drift of traffic cones — not one orange slab
+  const group = { units: [], barrier: null, props: [] };
+  for (const side of [-3.6, 3.6]) {
     const ox = bx + Math.cos(angle) * side, oz = bz - Math.sin(angle) * side;
     const unit = spawnPoliceCar(scene, ox, oz);
-    unit.car.angle = angle + (side < 0 ? 0.5 : -0.5);
+    unit.car.angle = angle + (side < 0 ? 0.55 : -0.55);
     unit.car.mesh.rotation.y = unit.car.angle;
     unit.car.parked = true;
     unit.state = 'ROADBLOCK';
     group.units.push(unit);
     // an officer stands by each car, gun up
     const om = makeOfficerMesh();
-    om.position.set(ox + Math.sin(angle) * 2.4, 0, oz + Math.cos(angle) * 2.4);
+    om.position.set(ox + Math.sin(angle) * 2.6, 0, oz + Math.cos(angle) * 2.6);
     om.rotation.y = angle + Math.PI;
     scene.add(om);
     G.officers.push({ mesh: om, pos: om.position, health: 50, dead: false, shootIn: 1 + Math.random() * 2, phase: Math.random() * 6 });
   }
-  const barrier = new THREE.Mesh(new THREE.BoxGeometry(7.6, 1.0, 0.5),
-    new THREE.MeshLambertMaterial({ color: 0xff7a2e }));
-  barrier.position.set(bx, 0.5, bz);
-  barrier.rotation.y = angle;
-  scene.add(barrier);
+  const barrierGroup = new THREE.Group();
+  const stripeMat = new THREE.MeshLambertMaterial({ map: makeStripeTexture() });
+  const barrier = new THREE.Mesh(new THREE.BoxGeometry(8.6, 0.85, 0.3), stripeMat);
+  barrier.position.y = 0.95; barrier.castShadow = true;
+  barrierGroup.add(barrier);
+  const legMat = new THREE.MeshLambertMaterial({ color: 0x2b2e33 });
+  for (const lx of [-3.6, 0, 3.6]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.95, 0.7), legMat);
+    leg.position.set(lx, 0.48, 0); barrierGroup.add(leg);
+  }
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.6, 0.1),
+    new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
+  sign.position.set(0, 1.75, 0); barrierGroup.add(sign);
+  barrierGroup.position.set(bx, 0, bz);
+  barrierGroup.rotation.y = angle;
+  scene.add(barrierGroup);
+  group.barrier = barrierGroup;
+  group.props.push(barrierGroup);
+  // spike strip across the lane in front, and cones scattered at the mouth
+  const fx = Math.sin(angle), fz = Math.cos(angle);
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.09, 0.8),
+    new THREE.MeshLambertMaterial({ color: 0x1c1e22 }));
+  strip.position.set(bx - fx * 4.2, 0.1, bz - fz * 4.2);
+  strip.rotation.y = angle;
+  scene.add(strip);
+  group.props.push(strip);
+  const coneGeo = new THREE.ConeGeometry(0.34, 0.85, 7);
+  const coneMat = new THREE.MeshLambertMaterial({ color: 0xff6a26 });
+  for (let i = 0; i < 6; i++) {
+    const t = (i - 2.5) * 1.9;
+    const cone = new THREE.Mesh(coneGeo, coneMat);
+    cone.position.set(bx + Math.cos(angle) * t - fx * 6.4, 0.43, bz - Math.sin(angle) * t - fz * 6.4);
+    cone.castShadow = true;
+    scene.add(cone);
+    group.props.push(cone);
+  }
   G.colliders.push({ x0: bx - 3.4, x1: bx + 3.4, z0: bz - 0.6, z1: bz + 0.6, temp: true });
   return group;
 }
 
 function spawnHelicopter(scene) {
+  // a helicopter silhouette, not a crate with a plank: rounded belly, glass
+  // cockpit, tail boom with a fin and a spinning tail rotor, skids, and the main
+  // rotor as a translucent blur disc over two faint blade boxes. The searchlight
+  // cone is brighter now and lands in a visible pool of light on the street.
   const heli = new THREE.Group();
   const bodyMat = new THREE.MeshLambertMaterial({ color: 0x243447 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.2, 6.4), bodyMat);
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x141a24 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.1, 5.6), bodyMat);
   body.castShadow = true; heli.add(body);
-  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 5.4), bodyMat);
-  tail.position.set(0, 0.4, -5.4); heli.add(tail);
-  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.24, 1.8, 1.1), bodyMat);
-  fin.position.set(0, 1, -7.8); heli.add(fin);
-  const rotor = new THREE.Mesh(new THREE.BoxGeometry(11.5, 0.08, 0.7),
-    new THREE.MeshLambertMaterial({ color: 0x14161a }));
-  rotor.position.y = 1.5; rotor.name = 'rotor'; heli.add(rotor);
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(9, CS.helicopter.height, 20, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.13, depthWrite: false, side: THREE.DoubleSide }));
-  cone.position.y = -CS.helicopter.height / 2 - 1;
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(1.85, 10, 7), bodyMat);
+  belly.scale.set(0.88, 0.5, 1.5); belly.position.set(0, -0.75, 0.3); heli.add(belly);
+  const cockpit = new THREE.Mesh(new THREE.BoxGeometry(2.7, 1.5, 2.2),
+    new THREE.MeshLambertMaterial({ color: 0x9fd4e8 }));
+  cockpit.position.set(0, 0.28, 2.9); heli.add(cockpit);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(3.26, 0.4, 5.66),
+    new THREE.MeshBasicMaterial({ color: 0xffb020 }));
+  stripe.position.y = -0.2; heli.add(stripe);
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.8, 5.6), bodyMat);
+  tail.position.set(0, 0.45, -5.2); heli.add(tail);
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.22, 2, 1.15), bodyMat);
+  fin.position.set(0, 1.05, -7.9); heli.add(fin);
+  const tailRotor = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.7, 0.3), darkMat);
+  tailRotor.position.set(0.24, 1.05, -7.9); tailRotor.name = 'tailrotor'; heli.add(tailRotor);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 0.7, 6), darkMat);
+  mast.position.y = 1.35; heli.add(mast);
+  const rotorGroup = new THREE.Group();
+  rotorGroup.position.y = 1.78; rotorGroup.name = 'rotor';
+  const bladeMat = new THREE.MeshLambertMaterial({ color: 0x14161a, transparent: true, opacity: 0.55 });
+  const blade1 = new THREE.Mesh(new THREE.BoxGeometry(12.4, 0.07, 0.65), bladeMat);
+  const blade2 = blade1.clone(); blade2.rotation.y = Math.PI / 2;
+  rotorGroup.add(blade1); rotorGroup.add(blade2);
+  const blurDisc = new THREE.Mesh(new THREE.CircleGeometry(6.3, 24),
+    new THREE.MeshBasicMaterial({ color: 0x2a2f38, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide }));
+  blurDisc.rotation.x = -Math.PI / 2;
+  rotorGroup.add(blurDisc);
+  heli.add(rotorGroup);
+  for (const sx of [-1.25, 1.25]) { // skids on struts
+    const skid = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 5.4, 6), darkMat);
+    skid.rotation.x = Math.PI / 2; skid.position.set(sx, -1.95, 0.2); heli.add(skid);
+    for (const sz of [-1.4, 1.6]) {
+      const strut = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.95, 0.14), darkMat);
+      strut.position.set(sx, -1.45, sz); strut.rotation.z = sx > 0 ? -0.35 : 0.35; heli.add(strut);
+    }
+  }
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 5),
+    new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
+  beacon.position.set(0, 0.4, -7.9); heli.add(beacon);
+  // the beam's geometry is translated so its apex sits at the mesh origin —
+  // aimSearchlight() can then swing the cone around the apex to land on the
+  // player instead of hanging straight down wherever the helicopter drifts
+  const coneGeo = new THREE.ConeGeometry(9.5, CS.helicopter.height, 20, 1, true);
+  coneGeo.translate(0, -CS.helicopter.height / 2, 0);
+  const cone = new THREE.Mesh(coneGeo,
+    new THREE.MeshBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.21, depthWrite: false, side: THREE.DoubleSide }));
+  cone.position.y = -1.2;
   cone.name = 'beam';
   heli.add(cone);
-  const spot = new THREE.SpotLight(0xffe9a8, 1.6, 130, 0.32, 0.5, 0.6);
+  // the pool of light where the beam lands — a flat additive disc that the
+  // update loop keeps under the player
+  const pool = new THREE.Mesh(new THREE.CircleGeometry(9.5, 20),
+    new THREE.MeshBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.42, depthWrite: false, blending: THREE.AdditiveBlending }));
+  pool.rotation.x = -Math.PI / 2;
+  pool.name = 'lightpool';
+  scene.add(pool);
+  const spot = new THREE.SpotLight(0xffe9a8, 1.9, 140, 0.34, 0.5, 0.6);
   spot.position.set(0, -1, 0);
   heli.add(spot); heli.add(spot.target);
   scene.add(heli);
-  G.helicopter = { mesh: heli, rotor: rotor, spot: spot, angle: 0, name: CS.helicopter.name, state: 'SPOTLIGHT ON YOU' };
+  G.helicopter = { mesh: heli, rotor: rotorGroup, tailRotor: tailRotor, cone: cone, pool: pool, spot: spot, angle: 0, name: CS.helicopter.name, state: 'SPOTLIGHT ON YOU' };
   return G.helicopter;
+}
+
+function aimSearchlight() {
+  // swing the beam cone (apex at its origin, hanging along -Y) onto the player:
+  // compute the world direction, undo the helicopter's own yaw, and set the
+  // cone's local quaternion from straight-down to that direction
+  const h = G.helicopter;
+  if (!h || !h.cone || !G.player) return;
+  const hp = h.mesh.position, tp = G.player.pos;
+  const dir = new THREE.Vector3(tp.x - hp.x, -hp.y, tp.z - hp.z);
+  if (dir.lengthSq() < 1) return;
+  dir.normalize();
+  const inv = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -h.mesh.rotation.y);
+  dir.applyQuaternion(inv);
+  h.cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);
 }
 
 function updateWanted(dt) {
@@ -130,7 +232,11 @@ function updateWanted(dt) {
     }
   }
   if (stars >= 4 && !G.helicopter) { spawnHelicopter(G.scene3); showToast('FALCON-1 IS OVERHEAD', 2.4); }
-  if (stars < 4 && G.helicopter) { G.scene3.remove(G.helicopter.mesh); G.helicopter = null; }
+  if (stars < 4 && G.helicopter) {
+    G.scene3.remove(G.helicopter.mesh);
+    if (G.helicopter.pool) G.scene3.remove(G.helicopter.pool);
+    G.helicopter = null;
+  }
   if (stars < 2 && G.roadblock) clearRoadblock();
 
   // --- chase AI -------------------------------------------------------------------
@@ -183,6 +289,9 @@ function updateWanted(dt) {
     h.mesh.position.set(hx, CS.helicopter.height, hz);
     h.mesh.rotation.y = h.angle + Math.PI / 2;
     h.rotor.rotation.y += dt * 28;
+    if (h.tailRotor) h.tailRotor.rotation.x += dt * 40;
+    if (h.pool) h.pool.position.set(playerPos.x, 0.22, playerPos.z);
+    aimSearchlight();
     h.spot.target.position.set(playerPos.x - hx, -CS.helicopter.height, playerPos.z - hz);
     h.state = stars >= 4 ? 'SPOTLIGHT ON YOU' : 'TRACKING';
   }
@@ -191,6 +300,7 @@ function updateWanted(dt) {
 function clearRoadblock() {
   if (!G.roadblock) return;
   for (const u of G.roadblock.units) { u.car.parked = false; u.state = 'EN ROUTE'; }
+  if (G.roadblock.props) for (const m of G.roadblock.props) G.scene3.remove(m);
   G.roadblock = null;
   G.colliders = G.colliders.filter(function (c) { return !c.temp; });
 }
@@ -198,7 +308,11 @@ function clearRoadblock() {
 function clearPolice() {
   for (const u of G.police) G.scene3.remove(u.car.mesh);
   G.police = [];
-  if (G.helicopter) { G.scene3.remove(G.helicopter.mesh); G.helicopter = null; }
+  if (G.helicopter) {
+    G.scene3.remove(G.helicopter.mesh);
+    if (G.helicopter.pool) G.scene3.remove(G.helicopter.pool);
+    G.helicopter = null;
+  }
   clearRoadblock();
 }
 
